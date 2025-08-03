@@ -4,6 +4,8 @@ version = "0.0.1"
 edition = "2021"
 authors = ["Dominik Adrian Grzywak <starterx4@gmail.com>"]
 description = "Minimal port of NodeJS steam-user library to Rust just for sending messages to group chats"
+repository = "https://github.com/KetherPL/SC_Sub_Poster"
+homepage = "https://kether.pl"
 license = "LGPL-3.0-only"
 rust-version = "1.85"
 

@@ -1,0 +1,3 @@
+[submodule "steam-vent"]
+	path = steam-vent
+	url = https://codeberg.org/icewind/steam-vent.git

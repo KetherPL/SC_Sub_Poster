@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "SC_Sub_Poster"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "atomic",
  "bytemuck",
@@ -1124,7 +1124,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "07033963ba89ebaf1584d767badaa2e8fcec21aedea6b8c0346d487d49c28667"
 dependencies = [
  "cfg-if",
- "windows-targets 0.52.6",
+ "windows-targets 0.48.5",
 ]
 
 [[package]]
@@ -1681,7 +1681,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1952,7 +1952,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.4.15",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2224,6 +2224,7 @@ checksum = "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3"
 [[package]]
 name = "steam-vent"
 version = "0.4.0"
+source = "git+https://codeberg.org/icewind/steam-vent.git#b17c9d881d13be4e1efee4495168ce2e485942a8"
 dependencies = [
  "another-steam-totp",
  "async-stream",
@@ -2263,6 +2264,7 @@ dependencies = [
 [[package]]
 name = "steam-vent-crypto"
 version = "0.2.1"
+source = "git+https://codeberg.org/icewind/steam-vent.git#b17c9d881d13be4e1efee4495168ce2e485942a8"
 dependencies = [
  "aes",
  "bytes",
@@ -2278,6 +2280,7 @@ dependencies = [
 [[package]]
 name = "steam-vent-proto"
 version = "0.5.0"
+source = "git+https://codeberg.org/icewind/steam-vent.git#b17c9d881d13be4e1efee4495168ce2e485942a8"
 dependencies = [
  "protobuf 3.5.1",
  "steam-vent-proto-common",
@@ -2287,6 +2290,7 @@ dependencies = [
 [[package]]
 name = "steam-vent-proto-common"
 version = "0.5.0"
+source = "git+https://codeberg.org/icewind/steam-vent.git#b17c9d881d13be4e1efee4495168ce2e485942a8"
 dependencies = [
  "protobuf 3.5.1",
 ]
@@ -2294,6 +2298,7 @@ dependencies = [
 [[package]]
 name = "steam-vent-proto-steam"
 version = "0.5.0"
+source = "git+https://codeberg.org/icewind/steam-vent.git#b17c9d881d13be4e1efee4495168ce2e485942a8"
 dependencies = [
  "steam-vent-proto-common",
 ]

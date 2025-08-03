@@ -1,4 +1,4 @@
-# SC Sub Poster (Steam Client Library)
+# SC Sub Poster (Kether.pl Steam Client Library)
 
 A Rust library that provides a wrapper around the `steam-vent` crate for logging in to Steam and operating on the Steam Group Chats.
 
@@ -75,4 +75,4 @@ This library depends on:
 
 ## License
 
-GPL-3.0-only
+LGPL-3.0-only

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: LGPL-3.0-only
+
 use std::collections::HashMap;
 use steamid_ng::SteamID;
 use serde::{Deserialize, Serialize};

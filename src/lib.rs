@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: LGPL-3.0-only
+
 // Re-export the main types for external use
 pub use logon::GameInfo;
 use logon::KetherSteamClient;

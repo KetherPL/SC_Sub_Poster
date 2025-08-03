@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: LGPL-3.0-only
+
 use std::error::Error;
 use steam_vent::proto::steammessages_chat_steamclient::{
     CChatRoom_GetMyChatRoomGroups_Request,

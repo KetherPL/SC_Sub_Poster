@@ -291,8 +291,18 @@ mod tests {
 
     #[tokio::test]
     async fn test_chat_client_creation() {
-        // Test with anonymous connection
-        let logon = LogOn::new_anonymous().await.unwrap();
+        // Try to get credentials from environment variables
+        let logon = match (std::env::var("STEAM_ACCOUNT"), std::env::var("STEAM_PASSWORD")) {
+            (Ok(account), Ok(password)) => {
+                println!("Using credentials from environment variables");
+                LogOn::new(&account, &password).await
+            }
+            _ => {
+                println!("No credentials provided, using anonymous connection");
+                LogOn::new_anonymous().await
+            }
+        }.unwrap();
+        
         let chat_client = ChatRoomClient::new(logon.connection().clone());
         
         // Test getting chat rooms (should work even if empty)
@@ -300,7 +310,12 @@ mod tests {
         assert!(chat_rooms.is_ok(), "Should be able to get chat rooms");
         
         let rooms = chat_rooms.unwrap();
-        println!("Found {} chat rooms", rooms.len());
+        println!("Found {} chat rooms:", rooms.len());
+        
+        for (i, room) in rooms.iter().enumerate() {
+            println!("  {}. {} (Group: {})", i + 1, room.chat_name, room.chat_group_name);
+            println!("     Group ID: {}, Chat ID: {}", room.chat_group_id, room.chat_id);
+        }
     }
 
     #[tokio::test]

@@ -6,7 +6,7 @@ use steam_vent::auth::{
     FileGuardDataStore,
 };
 use steam_vent::{Connection, ConnectionTrait, ServerList};
-use steamid_ng::SteamID;
+use steamid_ng2::SteamID;
 
 /// Steam client wrapper for authenticated and anonymous operations
 pub struct KetherSteamClient {
@@ -52,20 +52,26 @@ impl KetherSteamClient {
         &mut self.connection
     }
 
-    /// Test if the connection is working by requesting server list
+    /// Test if the connection is working by requesting app info
     pub async fn test_connection(&self) -> Result<(), Box<dyn Error>> {
-        use steam_vent::proto::steammessages_gameservers_steamclient::CGameServers_GetServerList_Request;
-
-        let mut req = CGameServers_GetServerList_Request::new();
-        req.set_limit(5);
-        req.set_filter(r"\appid\440".into()); // TF2 servers for testing
+        use steam_vent::proto::steammessages_clientserver_appinfo::{
+            cmsg_client_picsproduct_info_request, CMsgClientPICSProductInfoRequest,
+            CMsgClientPICSProductInfoResponse,
+        };
         
-        let servers = self.connection.service_method(req).await?;
+        // Request basic app info for TF2 (appid 440) - lightweight test that works for both authenticated and anonymous
+        let req = CMsgClientPICSProductInfoRequest {
+            apps: vec![cmsg_client_picsproduct_info_request::AppInfo {
+                appid: Some(440),
+                only_public_obsolete: Some(true),
+                ..Default::default()
+            }],
+            meta_data_only: Some(true), // Only request metadata, not full app data
+            single_response: Some(true),
+            ..Default::default()
+        };
         
-        if servers.servers.is_empty() {
-            return Err("No servers found, but connection is working".into());
-        }
-        
+        let _response: CMsgClientPICSProductInfoResponse = self.connection.job(req).await?;
         Ok(())
     }
 

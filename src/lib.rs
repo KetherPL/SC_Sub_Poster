@@ -39,12 +39,9 @@ mod tests {
         let steam_id = client.steam_id();
         println!("Anonymous Steam ID: {}", steam_id.steam3());
         
-        // The server list test might fail due to Steam API restrictions
-        // but the connection itself is working
+        // Test connection with actual API call
         let result = client.test_connection().await;
-        if result.is_err() {
-            println!("Server list test failed (this is normal for anonymous connections): {:?}", result);
-        }
+        assert!(result.is_ok(), "Connection test should succeed: {:?}", result);
     }
 
     #[tokio::test]

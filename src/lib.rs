@@ -1,27 +1,46 @@
 // SPDX-License-Identifier: LGPL-3.0-only
 
+//! High-level facade over the `steam-vent` primitives used by Kether.
+//! 
+//! All public constructors enforce the following invariants:
+//! - Successful logon yields a non-zero SteamID and session id.
+//! - Notification helpers surface recoverable errors instead of panicking.
+//! - Preprocessing utilities do not mutate the original message payload.
+
 // Re-export the main types for external use
-pub use logon::GameInfo;
+pub use logon::{GameInfo, LogonError, SessionSnapshot};
 use logon::KetherSteamClient;
 
-// Export KetherSteamClient as LogOn for external crates
+/// Primary facade for establishing authenticated or anonymous sessions.
+///
+/// Calls to `new`/`new_anonymous` only succeed when the resulting connection
+/// reports a non-zero SteamID and session id. Prefer [`SessionSnapshot`] when
+/// callers only require read-only metadata.
 pub type LogOn = KetherSteamClient;
 
 // Re-export chat room types
 pub use chatroom::{
-    ChatRoomClient, ChatRoomInfo, FriendMessage, GroupChatMessage, EnhancedGroupChatMessage,
+    ChatRoomClient, ChatRoomGroups, ChatRoomInfo, ChatRoomMessaging, ChatRoomNotifications,
+    FriendMessage, GroupChatMessage, EnhancedGroupChatMessage,
 };
 pub use chatroom::helpers as chat_helpers;
 
 // Re-export preprocessing types
 pub use preprocessing::{
     MessagePreprocessor, PreprocessedMessage, BBCodeNode, BBCodeContent, ChatMentions,
+    MentionSteamId,
 };
 pub use preprocessing::helpers as preprocessing_helpers;
 
 pub mod logon;
 pub mod chatroom;
 pub mod preprocessing;
+pub mod errors;
+
+pub use errors::{
+    classify_connection_error, classify_login_error, classify_network_error, ErrorDomain,
+    ErrorInventoryEntry, RetryDisposition,
+};
 
 #[cfg(test)]
 mod tests {
@@ -30,6 +49,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    #[ignore = "Requires Steam network access"]
     async fn test_anonymous_connection() {
         let client = KetherSteamClient::new_anonymous().await;
         assert!(client.is_ok(), "Anonymous connection should work");

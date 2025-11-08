@@ -24,12 +24,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Login to Steam
     let logon = LogOn::new(&account, &password).await?;
     println!("✓ Login successful! Steam ID: {}", logon.steam_id().steam3());
+    let snapshot = logon.session_snapshot();
+    println!("Session cell id: {}", snapshot.cell_id);
 
     // Create chat room client
     let chat_client = ChatRoomClient::new(logon.connection().clone());
     
     // Get your chat rooms
-    let chat_rooms = chat_client.get_my_chat_rooms().await?;
+    let chat_rooms = chat_client.groups().get_my_chat_rooms().await?;
     println!("Found {} chat rooms", chat_rooms.len());
     
     // Send a message to a specific group chat
@@ -37,7 +39,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let chat_id: u64 = 22190790;  // Replace with your chat ID
     let message = "Hello from Rust!";
     
-    let response = chat_client.send_group_message(group_id, chat_id, message, true).await?;
+    let response = chat_client
+        .messaging()
+        .send_group_message(group_id, chat_id, message, true)
+        .await?;
     println!("✓ Message sent successfully!");
     println!("Modified message: {}", response.modified_message);
     
@@ -59,11 +64,17 @@ export CHAT_ID="your_chat_id"         # Optional
 ### Features
 
 - **Message Preprocessing**: Automatically processes BBCode formatting and mentions
-- **Mention Support**: Handle `@all`, `@here`, and `@steamid` mentions
-- **Real-time Listening**: Listen for incoming friend and group messages
-- **Enhanced Messages**: Get detailed information about processed messages
+- **Mention Support**: Handle `@all`, `@here`, and `[U:1:xxxxx]` SteamID mentions with serde-safe wrappers
+- **Real-time Listening**: Listen for incoming friend and group messages with error-aware callbacks
+- **Enhanced Messages**: Get detailed information about processed messages, including immutable session snapshots
+- **Tracing Spans**: Built-in `tracing` instrumentation for logon, chat dispatch and preprocessing
 
 For more advanced usage, see the `examples/chat_demo.rs` file.
+
+## Error Handling
+
+- `LogOn::new` and `LogOn::new_anonymous` return a boxed `LogonError` that can be downcast for retry hints (`ErrorInventoryEntry`).
+- Notification loops expose `listen_for_*_messages_with` helpers that bubble transport failures rather than silently retrying forever.
 
 ## Dependencies
 

@@ -130,7 +130,7 @@ impl SendGroupMessageParams {
             chat_group_id,
             chat_id,
             message: message.into(),
-            echo_to_sender: true,
+            echo_to_sender: false,
         }
     }
 

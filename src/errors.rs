@@ -18,21 +18,39 @@ pub enum RetryDisposition {
 /// High-level component where an error originated.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorDomain {
+    /// Error occurred during authentication or authorization.
     Authentication,
+    /// Error occurred in network transport layer.
     Transport,
+    /// Error occurred in application-level logic.
     Application,
+    /// Error origin could not be determined.
     Unknown,
 }
 
 /// Summary describing how an upstream error should be treated.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ErrorInventoryEntry {
+    /// The domain where the error originated.
     pub domain: ErrorDomain,
+    /// How the caller should handle retrying this error.
     pub disposition: RetryDisposition,
+    /// Human-readable description of the error.
     pub description: &'static str,
 }
 
 impl ErrorInventoryEntry {
+    /// Create a new error inventory entry.
+    ///
+    /// # Arguments
+    ///
+    /// * `domain` - The domain where the error originated
+    /// * `disposition` - How the caller should handle retrying
+    /// * `description` - Human-readable description of the error
+    ///
+    /// # Returns
+    ///
+    /// A new `ErrorInventoryEntry` with the specified classification.
     pub const fn new(
         domain: ErrorDomain,
         disposition: RetryDisposition,

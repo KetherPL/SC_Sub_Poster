@@ -11,16 +11,25 @@ const ALLOWED_BBCODE_TAGS: &[&str] = &[
 ];
 
 // BBCode formatting type constants
+/// BBCode type constant for bold text formatting.
 pub const BBCODE_TYPE_BOLD: &str = "bold";
+/// BBCode type constant for italic text formatting.
 pub const BBCODE_TYPE_ITALIC: &str = "italic";
+/// BBCode type constant for underline text formatting.
 pub const BBCODE_TYPE_UNDERLINE: &str = "underline";
+/// BBCode type constant for spoiler text formatting.
 pub const BBCODE_TYPE_SPOILER: &str = "spoiler";
+/// BBCode type constant for code block formatting.
 pub const BBCODE_TYPE_CODE: &str = "code";
+/// BBCode type constant for URL/link formatting.
 pub const BBCODE_TYPE_URL: &str = "url";
+/// BBCode type constant for emoticon formatting.
 pub const BBCODE_TYPE_EMOTICON: &str = "emoticon";
 
 // Mention token constants
+/// Mention token constant for mentioning all group members.
 pub const MENTION_ALL: &str = "@all";
+/// Mention token constant for mentioning online/active members.
 pub const MENTION_HERE: &str = "@here";
 
 // Punctuation characters to trim from mention tokens
@@ -29,8 +38,11 @@ const MENTION_PUNCTUATION: &str = "!?,.;";
 /// Represents a BBCode node
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BBCodeNode {
+    /// The BBCode tag name (e.g., "b", "i", "spoiler").
     pub tag: String,
+    /// Attributes associated with the tag (e.g., URL value for `[url=...]`).
     pub attrs: HashMap<String, String>,
+    /// Optional nested content within this BBCode node.
     pub content: Option<Vec<BBCodeContent>>,
 }
 
@@ -38,15 +50,20 @@ pub struct BBCodeNode {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum BBCodeContent {
+    /// Plain text content.
     String(String),
+    /// A BBCode node containing structured formatting.
     Node(BBCodeNode),
 }
 
 /// Represents chat mentions
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatMentions {
+    /// Whether the message mentions all group members (via `@all`).
     pub mention_all: bool,
+    /// Whether the message mentions online/active members (via `@here`).
     pub mention_here: bool,
+    /// List of specific Steam IDs mentioned in the message (via `[U:1:xxxxx]` format).
     pub mention_steamids: Vec<MentionSteamId>,
 }
 
@@ -58,14 +75,19 @@ impl ChatMentions {
 }
 
 /// Wrapper around `SteamID` that supports serde serialization.
+///
+/// This wrapper enables `SteamID` values to be serialized/deserialized as JSON-compatible
+/// u64 values, which is useful for storing mentions in processed messages.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct MentionSteamId(pub SteamID);
 
 impl MentionSteamId {
+    /// Consumes the wrapper and returns the inner `SteamID`.
     pub fn into_inner(self) -> SteamID {
         self.0
     }
 
+    /// Returns a reference to the inner `SteamID` without consuming the wrapper.
     pub fn as_inner(&self) -> SteamID {
         self.0
     }
@@ -105,15 +127,24 @@ impl<'de> serde::Deserialize<'de> for MentionSteamId {
 /// Preprocessed message with BBCode parsing and mentions
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PreprocessedMessage {
+    /// The original message text before any processing.
     pub original_message: String,
+    /// The message text after server-side modifications (if available).
     pub modified_message: String,
+    /// Parsed BBCode structure extracted from the message.
     pub message_bbcode_parsed: Vec<BBCodeContent>,
+    /// Extracted mentions from the message, if any were found.
     pub mentions: Option<ChatMentions>,
+    /// Server timestamp when the message was processed (if available).
     pub server_timestamp: Option<u32>,
+    /// Message ordinal/sequence number assigned by the server (if available).
     pub ordinal: Option<u32>,
 }
 
-/// Message preprocessor for Steam chat
+/// Message preprocessor for Steam chat messages.
+///
+/// Provides utilities for parsing BBCode, extracting mentions, and preparing
+/// messages for sending through the Steam chat API.
 pub struct MessagePreprocessor;
 
 impl MessagePreprocessor {
@@ -212,33 +243,70 @@ impl MessagePreprocessor {
     }
 }
 
-/// Helper functions for message processing
+/// Helper functions for message processing and formatting.
+///
+/// This module provides convenience functions for creating mentions, formatting
+/// messages with BBCode, and checking for mentions in text.
 pub mod helpers {
     use super::*;
 
-    /// Create a simple mention for a Steam ID
+    /// Create a mention string for a Steam ID in the format `@[U:1:xxxxx]`.
+    ///
+    /// # Arguments
+    ///
+    /// * `steam_id` - The Steam ID to create a mention for
+    ///
+    /// # Returns
+    ///
+    /// A string in the format `@[U:1:xxxxx]` that can be used to mention the user.
     pub fn create_mention(steam_id: SteamID) -> String {
         format!("@{}", steam_id.steam3())
     }
 
-    /// Create an @all mention
+    /// Create an `@all` mention string.
+    ///
+    /// # Returns
+    ///
+    /// The string `"@all"` which mentions all members in a group chat.
     pub fn create_all_mention() -> String {
         super::MENTION_ALL.to_string()
     }
 
-    /// Create an @here mention
+    /// Create an `@here` mention string.
+    ///
+    /// # Returns
+    ///
+    /// The string `"@here"` which mentions online/active members in a group chat.
     pub fn create_here_mention() -> String {
         super::MENTION_HERE.to_string()
     }
 
-    /// Check if a message contains any mentions
+    /// Check if a message contains any mention tokens.
+    ///
+    /// # Arguments
+    ///
+    /// * `message` - The message text to check
+    ///
+    /// # Returns
+    ///
+    /// `true` if the message contains `@all`, `@here`, or any `@` character.
     pub fn has_mentions(message: &str) -> bool {
         message.contains(super::MENTION_ALL)
             || message.contains(super::MENTION_HERE)
             || message.contains("@")
     }
 
-    /// Format a message with BBCode
+    /// Format a message with BBCode tags.
+    ///
+    /// # Arguments
+    ///
+    /// * `message` - The message content to wrap in BBCode
+    /// * `bbcode_type` - The type of BBCode formatting (e.g., `BBCODE_TYPE_BOLD`)
+    /// * `value` - Optional value for BBCode types that require it (e.g., URL for `BBCODE_TYPE_URL`)
+    ///
+    /// # Returns
+    ///
+    /// The message wrapped in the appropriate BBCode tags.
     pub fn format_with_bbcode(message: &str, bbcode_type: &str, value: &str) -> String {
         super::bbcode::formatting::format_with_bbcode(message, bbcode_type, value)
     }

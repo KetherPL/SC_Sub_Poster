@@ -181,23 +181,43 @@ mod bootstrap {
 /// Information about a Steam game
 #[derive(Debug, Clone)]
 pub struct GameInfo {
+    /// The Steam application ID for the game.
     pub app_id: u32,
+    /// The display name of the game.
     pub name: String,
+    /// Total playtime in minutes across all time periods.
     pub playtime_forever: u32,
 }
 
 /// Immutable snapshot of connection/session state.
+///
+/// Provides read-only access to session metadata without exposing the underlying connection.
 #[derive(Debug, Clone)]
 pub struct SessionSnapshot {
+    /// The Steam ID of the authenticated user.
     pub steam_id: SteamID,
+    /// The current session ID.
     pub session_id: i32,
+    /// The Steam cell ID for this session.
     pub cell_id: u32,
+    /// The public IP address of the connection, if available.
     pub public_ip: Option<IpAddr>,
+    /// The country code of the IP address, if available.
     pub ip_country_code: Option<String>,
+    /// The access token for this session, if available.
     pub access_token: Option<String>,
 }
 
 impl SessionSnapshot {
+    /// Create a session snapshot from a Steam connection.
+    ///
+    /// # Arguments
+    ///
+    /// * `connection` - The Steam connection to snapshot
+    ///
+    /// # Returns
+    ///
+    /// A new `SessionSnapshot` containing read-only session metadata.
     pub fn from_connection(connection: &Connection) -> Self {
         Self {
             steam_id: connection.steam_id(),
@@ -210,28 +230,43 @@ impl SessionSnapshot {
     }
 }
 
+/// Errors that can occur during Steam authentication and connection establishment.
 #[derive(Debug, Error)]
 pub enum LogonError {
+    /// Failed to discover Steam servers during connection initialization.
     #[error("failed to discover Steam servers: {source}")]
     Discovery {
+        /// The underlying server discovery error.
         #[source]
         source: steam_vent::ServerDiscoveryError,
+        /// Error classification and retry guidance.
         inventory: ErrorInventoryEntry,
     },
+    /// Failed to establish connection to Steam servers.
     #[error("failed to establish connection: {source}")]
     Connection {
+        /// The underlying connection error.
         #[source]
         source: steam_vent::ConnectionError,
+        /// Error classification and retry guidance.
         inventory: ErrorInventoryEntry,
     },
+    /// Invalid session state detected after connection (e.g., zero Steam ID or session ID).
     #[error("invalid session state: {message}")]
     InvariantViolation {
+        /// Description of the invariant violation.
         message: &'static str,
+        /// Error classification and retry guidance.
         inventory: ErrorInventoryEntry,
     },
 }
 
 impl LogonError {
+    /// Get the error inventory entry containing classification and retry guidance.
+    ///
+    /// # Returns
+    ///
+    /// An `ErrorInventoryEntry` describing the error domain, retry disposition, and description.
     pub fn inventory(&self) -> ErrorInventoryEntry {
         match self {
             LogonError::Discovery { inventory, .. }

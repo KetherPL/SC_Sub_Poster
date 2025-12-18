@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: LGPL-3.0-only
 
+#![allow(non_snake_case)]
+#![warn(missing_docs)]
+
 //! High-level facade over the `steam-vent` primitives used by Kether.
 //! 
 //! All public constructors enforce the following invariants:
@@ -32,9 +35,13 @@ pub use preprocessing::{
 };
 pub use preprocessing::helpers as preprocessing_helpers;
 
+/// Steam authentication and connection management.
 pub mod logon;
+/// Steam chat room operations and messaging.
 pub mod chatroom;
+/// Message preprocessing utilities for BBCode and mentions.
 pub mod preprocessing;
+/// Error classification and retry guidance utilities.
 pub mod errors;
 
 pub use errors::{

@@ -35,44 +35,70 @@ type CallbackResult = Result<(), Box<dyn Error + Send + Sync>>;
 /// Chat room information
 #[derive(Debug, Clone)]
 pub struct ChatRoomInfo {
+    /// The unique identifier for the chat group.
     pub chat_group_id: u64,
+    /// The unique identifier for the specific chat room within the group.
     pub chat_id: u64,
+    /// The display name of the chat room.
     pub chat_name: String,
+    /// The display name of the chat group.
     pub chat_group_name: String,
+    /// Whether the current user is currently joined to this chat room.
     pub is_joined: bool,
 }
 
 /// Friend message information
 #[derive(Debug, Clone)]
 pub struct FriendMessage {
+    /// The Steam ID of the friend who sent the message.
     pub steam_id: SteamID,
+    /// The message text content.
     pub message: String,
+    /// Unix timestamp when the message was sent.
     pub timestamp: u32,
+    /// The type of chat entry (message type identifier from Steam API).
     pub chat_entry_type: i32,
 }
 
 /// Group chat message information
 #[derive(Debug, Clone)]
 pub struct GroupChatMessage {
+    /// The unique identifier for the chat group.
     pub chat_group_id: u64,
+    /// The unique identifier for the specific chat room within the group.
     pub chat_id: u64,
+    /// The Steam ID of the user who sent the message.
     pub sender_steam_id: SteamID,
+    /// The message text content.
     pub message: String,
+    /// Unix timestamp when the message was sent.
     pub timestamp: u32,
+    /// The display name of the chat room.
     pub chat_name: String,
+    /// Message ordinal/sequence number assigned by the server.
     pub ordinal: u32,
 }
 
 /// Enhanced group chat message with preprocessing
+///
+/// Extends `GroupChatMessage` with preprocessed BBCode and mention information.
 #[derive(Debug, Clone)]
 pub struct EnhancedGroupChatMessage {
+    /// The unique identifier for the chat group.
     pub chat_group_id: u64,
+    /// The unique identifier for the specific chat room within the group.
     pub chat_id: u64,
+    /// The Steam ID of the user who sent the message.
     pub sender_steam_id: SteamID,
+    /// The message text content.
     pub message: String,
+    /// Unix timestamp when the message was sent.
     pub timestamp: u32,
+    /// The display name of the chat room.
     pub chat_name: String,
+    /// Message ordinal/sequence number assigned by the server.
     pub ordinal: u32,
+    /// Preprocessed message data including parsed BBCode and extracted mentions.
     pub preprocessed: PreprocessedMessage,
 }
 
@@ -118,13 +144,28 @@ pub struct ChatRoomNotifications<'a> {
 /// Parameters for sending a group message
 #[derive(Debug, Clone)]
 pub struct SendGroupMessageParams {
+    /// The unique identifier for the chat group.
     pub chat_group_id: u64,
+    /// The unique identifier for the specific chat room within the group.
     pub chat_id: u64,
+    /// The message text to send.
     pub message: String,
+    /// Whether the message should be echoed back to the sender.
     pub echo_to_sender: bool,
 }
 
 impl SendGroupMessageParams {
+    /// Create a new `SendGroupMessageParams` with default settings.
+    ///
+    /// # Arguments
+    ///
+    /// * `chat_group_id` - The unique identifier for the chat group
+    /// * `chat_id` - The unique identifier for the specific chat room
+    /// * `message` - The message text to send (any type that can be converted to `String`)
+    ///
+    /// # Defaults
+    ///
+    /// * `echo_to_sender` is set to `false` by default. Use `with_echo_to_sender()` to change it.
     pub fn new(chat_group_id: u64, chat_id: u64, message: impl Into<String>) -> Self {
         Self {
             chat_group_id,
@@ -134,6 +175,15 @@ impl SendGroupMessageParams {
         }
     }
 
+    /// Set whether the message should be echoed back to the sender.
+    ///
+    /// # Arguments
+    ///
+    /// * `echo` - If `true`, the message will be echoed back to the sender
+    ///
+    /// # Returns
+    ///
+    /// `Self` for method chaining (builder pattern).
     pub fn with_echo_to_sender(mut self, echo: bool) -> Self {
         self.echo_to_sender = echo;
         self
@@ -157,38 +207,76 @@ enum NotificationDispatchError {
 }
 
 impl ChatRoomClient {
-    /// Create a new chat room client from an existing connection
+    /// Create a new chat room client from an existing connection.
+    ///
+    /// # Arguments
+    ///
+    /// * `connection` - An established Steam connection from `LogOn::connection()`
     pub fn new(connection: steam_vent::Connection) -> Self {
         Self { connection }
     }
 
-    /// Access group-related operations.
+    /// Access group-related operations (joining, leaving, listing chat rooms).
+    ///
+    /// # Returns
+    ///
+    /// A `ChatRoomGroups` handle for performing group operations.
     pub fn groups(&self) -> ChatRoomGroups<'_> {
         ChatRoomGroups {
             connection: &self.connection,
         }
     }
 
-    /// Access message sending helpers.
+    /// Access message sending helpers for group chats and friend messages.
+    ///
+    /// # Returns
+    ///
+    /// A `ChatRoomMessaging` handle for sending messages.
     pub fn messaging(&self) -> ChatRoomMessaging<'_> {
         ChatRoomMessaging {
             connection: &self.connection,
         }
     }
 
-    /// Access notification listeners.
+    /// Access notification listeners for incoming messages.
+    ///
+    /// # Returns
+    ///
+    /// A `ChatRoomNotifications` handle for setting up message listeners.
     pub fn notifications(&self) -> ChatRoomNotifications<'_> {
         ChatRoomNotifications {
             connection: &self.connection,
         }
     }
 
-    /// Get all chat room groups that the user is a member of
+    /// Get all chat room groups that the user is a member of.
+    ///
+    /// # Returns
+    ///
+    /// A list of `ChatRoomInfo` structures describing each chat room group the user belongs to.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the Steam API request fails.
     pub async fn get_my_chat_rooms(&self) -> Result<Vec<ChatRoomInfo>, Box<dyn Error>> {
         self.groups().get_my_chat_rooms().await
     }
 
-    /// Join a chat room group
+    /// Join a chat room group.
+    ///
+    /// # Arguments
+    ///
+    /// * `chat_group_id` - The unique identifier for the chat group
+    /// * `chat_id` - The unique identifier for the specific chat room
+    /// * `invite_code` - Optional invite code required for private chat rooms
+    ///
+    /// # Returns
+    ///
+    /// The Steam API response containing join confirmation details.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the join request fails or if an invalid invite code is provided.
     pub async fn join_chat_room(
         &self,
         chat_group_id: u64,
@@ -200,12 +288,35 @@ impl ChatRoomClient {
             .await
     }
 
-    /// Leave a chat room group
+    /// Leave a chat room group.
+    ///
+    /// # Arguments
+    ///
+    /// * `chat_group_id` - The unique identifier for the chat group to leave
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the leave request fails.
     pub async fn leave_chat_room(&self, chat_group_id: u64) -> Result<(), Box<dyn Error>> {
         self.groups().leave_chat_room(chat_group_id).await
     }
 
-    /// Send a message to a group chat with preprocessing
+    /// Send a message to a group chat with preprocessing.
+    ///
+    /// The message will be preprocessed to extract BBCode and mentions before sending.
+    ///
+    /// # Arguments
+    ///
+    /// * `params` - Parameters for sending the message (see `SendGroupMessageParams`)
+    ///
+    /// # Returns
+    ///
+    /// A `PreprocessedMessage` containing the original message, server-modified version,
+    /// parsed BBCode, and extracted mentions.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the message sending fails.
     #[instrument(
         name = "kether.chat.send_group_message",
         skip(self, params),
@@ -218,7 +329,21 @@ impl ChatRoomClient {
         self.messaging().send_group_message(params).await
     }
 
-    /// Send a message to a friend
+    /// Send a message to a friend.
+    ///
+    /// # Arguments
+    ///
+    /// * `friend_steam_id` - The Steam ID of the friend to send the message to
+    /// * `message` - The message text to send
+    /// * `chat_entry_type` - The type of chat entry (message type identifier from Steam API)
+    ///
+    /// # Returns
+    ///
+    /// The Steam API response containing message confirmation details.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the message sending fails.
     pub async fn send_friend_message(
         &self,
         friend_steam_id: SteamID,
@@ -230,12 +355,34 @@ impl ChatRoomClient {
             .await
     }
 
-    /// Get chat room group state
+    /// Get the current state of a chat room group.
+    ///
+    /// # Arguments
+    ///
+    /// * `chat_group_id` - The unique identifier for the chat group
+    ///
+    /// # Returns
+    ///
+    /// The Steam API response containing the current state of the chat room group.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the state request fails.
     pub async fn get_chat_room_state(&self, chat_group_id: u64) -> Result<CChatRoom_GetChatRoomGroupState_Response, Box<dyn Error>> {
         self.groups().get_chat_room_state(chat_group_id).await
     }
 
-    /// Listen for incoming group chat messages with preprocessing
+    /// Listen for incoming group chat messages with preprocessing.
+    ///
+    /// Messages are automatically preprocessed to extract BBCode and mentions.
+    ///
+    /// # Arguments
+    ///
+    /// * `callback` - A closure that will be called for each incoming message
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the notification stream fails or the callback panics.
     pub async fn listen_for_group_messages<F>(&self, callback: F) -> Result<(), Box<dyn Error>>
     where
         F: FnMut(EnhancedGroupChatMessage) + Send + 'static,
@@ -243,7 +390,15 @@ impl ChatRoomClient {
         self.notifications().listen_for_group_messages(callback).await
     }
 
-    /// Listen for incoming friend messages
+    /// Listen for incoming friend messages.
+    ///
+    /// # Arguments
+    ///
+    /// * `callback` - A closure that will be called for each incoming friend message
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the notification stream fails or the callback panics.
     pub async fn listen_for_friend_messages<F>(&self, callback: F) -> Result<(), Box<dyn Error>>
     where
         F: FnMut(FriendMessage) + Send + 'static,
@@ -251,12 +406,17 @@ impl ChatRoomClient {
         self.notifications().listen_for_friend_messages(callback).await
     }
 
-    /// Get the underlying connection for advanced operations
+    /// Get the underlying Steam connection for advanced operations.
+    ///
+    /// This provides direct access to the `steam-vent` connection, allowing
+    /// you to perform operations not covered by the high-level API.
     pub fn connection(&self) -> &steam_vent::Connection {
         &self.connection
     }
 
-    /// Get a mutable reference to the connection
+    /// Get a mutable reference to the underlying Steam connection.
+    ///
+    /// This provides mutable access to the `steam-vent` connection for advanced use cases.
     pub fn connection_mut(&mut self) -> &mut steam_vent::Connection {
         &mut self.connection
     }
@@ -295,6 +455,15 @@ where
 }
 
 impl<'a> ChatRoomGroups<'a> {
+    /// Get all chat room groups that the user is a member of.
+    ///
+    /// # Returns
+    ///
+    /// A list of `ChatRoomInfo` structures describing each chat room group the user belongs to.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the Steam API request fails.
     pub async fn get_my_chat_rooms(&self) -> Result<Vec<ChatRoomInfo>, Box<dyn Error>> {
         let req = CChatRoom_GetMyChatRoomGroups_Request::new();
         let response: CChatRoom_GetMyChatRoomGroups_Response =
@@ -317,6 +486,21 @@ impl<'a> ChatRoomGroups<'a> {
         Ok(chat_rooms)
     }
 
+    /// Join a chat room group.
+    ///
+    /// # Arguments
+    ///
+    /// * `chat_group_id` - The unique identifier for the chat group
+    /// * `chat_id` - The unique identifier for the specific chat room
+    /// * `invite_code` - Optional invite code required for private chat rooms
+    ///
+    /// # Returns
+    ///
+    /// The Steam API response containing join confirmation details.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the join request fails or if an invalid invite code is provided.
     pub async fn join_chat_room(
         &self,
         chat_group_id: u64,
@@ -336,6 +520,15 @@ impl<'a> ChatRoomGroups<'a> {
         Ok(response)
     }
 
+    /// Leave a chat room group.
+    ///
+    /// # Arguments
+    ///
+    /// * `chat_group_id` - The unique identifier for the chat group to leave
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the leave request fails.
     pub async fn leave_chat_room(&self, chat_group_id: u64) -> Result<(), Box<dyn Error>> {
         let mut req = CChatRoom_LeaveChatRoomGroup_Request::new();
         req.set_chat_group_id(chat_group_id);
@@ -345,6 +538,19 @@ impl<'a> ChatRoomGroups<'a> {
         Ok(())
     }
 
+    /// Get the current state of a chat room group.
+    ///
+    /// # Arguments
+    ///
+    /// * `chat_group_id` - The unique identifier for the chat group
+    ///
+    /// # Returns
+    ///
+    /// The Steam API response containing the current state of the chat room group.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the state request fails.
     pub async fn get_chat_room_state(
         &self,
         chat_group_id: u64,
@@ -359,6 +565,22 @@ impl<'a> ChatRoomGroups<'a> {
 }
 
 impl<'a> ChatRoomMessaging<'a> {
+    /// Send a message to a group chat with preprocessing.
+    ///
+    /// The message will be preprocessed to extract BBCode and mentions before sending.
+    ///
+    /// # Arguments
+    ///
+    /// * `params` - Parameters for sending the message (see `SendGroupMessageParams`)
+    ///
+    /// # Returns
+    ///
+    /// A `PreprocessedMessage` containing the original message, server-modified version,
+    /// parsed BBCode, and extracted mentions.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the message sending fails.
     pub async fn send_group_message(
         &self,
         params: SendGroupMessageParams,
@@ -400,6 +622,21 @@ impl<'a> ChatRoomMessaging<'a> {
         )
     }
 
+    /// Send a message to a friend.
+    ///
+    /// # Arguments
+    ///
+    /// * `friend_steam_id` - The Steam ID of the friend to send the message to
+    /// * `message` - The message text to send
+    /// * `chat_entry_type` - The type of chat entry (message type identifier from Steam API)
+    ///
+    /// # Returns
+    ///
+    /// The Steam API response containing message confirmation details.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the message sending fails.
     #[instrument(
         name = "kether.chat.send_friend_message",
         skip(self, message),
@@ -430,6 +667,18 @@ impl<'a> ChatRoomMessaging<'a> {
 }
 
 impl<'a> ChatRoomNotifications<'a> {
+    /// Listen for incoming group chat messages with preprocessing and error handling.
+    ///
+    /// Messages are automatically preprocessed to extract BBCode and mentions.
+    /// The callback can return an error to stop the listener, or `Ok(())` to continue.
+    ///
+    /// # Arguments
+    ///
+    /// * `callback` - A closure that processes each incoming message and returns a `CallbackResult`
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the notification stream fails or the callback returns an error.
     pub async fn listen_for_group_messages_with<F>(&self, callback: F) -> Result<(), Box<dyn Error>>
     where
         F: FnMut(EnhancedGroupChatMessage) -> CallbackResult + Send + 'static,
@@ -444,6 +693,18 @@ impl<'a> ChatRoomNotifications<'a> {
             .map_err(|err| -> Box<dyn Error> { Box::new(err) })
     }
 
+    /// Listen for incoming group chat messages with preprocessing.
+    ///
+    /// Messages are automatically preprocessed to extract BBCode and mentions.
+    /// This is a convenience wrapper that ignores callback errors.
+    ///
+    /// # Arguments
+    ///
+    /// * `callback` - A closure that will be called for each incoming message
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the notification stream fails.
     pub async fn listen_for_group_messages<F>(&self, mut callback: F) -> Result<(), Box<dyn Error>>
     where
         F: FnMut(EnhancedGroupChatMessage) + Send + 'static,
@@ -455,6 +716,17 @@ impl<'a> ChatRoomNotifications<'a> {
         .await
     }
 
+    /// Listen for incoming friend messages with error handling.
+    ///
+    /// The callback can return an error to stop the listener, or `Ok(())` to continue.
+    ///
+    /// # Arguments
+    ///
+    /// * `callback` - A closure that processes each incoming message and returns a `CallbackResult`
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the notification stream fails or the callback returns an error.
     pub async fn listen_for_friend_messages_with<F>(&self, callback: F) -> Result<(), Box<dyn Error>>
     where
         F: FnMut(FriendMessage) -> CallbackResult + Send + 'static,
@@ -474,6 +746,17 @@ impl<'a> ChatRoomNotifications<'a> {
             .map_err(|err| -> Box<dyn Error> { Box::new(err) })
     }
 
+    /// Listen for incoming friend messages.
+    ///
+    /// This is a convenience wrapper that ignores callback errors.
+    ///
+    /// # Arguments
+    ///
+    /// * `callback` - A closure that will be called for each incoming friend message
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the notification stream fails.
     pub async fn listen_for_friend_messages<F>(&self, mut callback: F) -> Result<(), Box<dyn Error>>
     where
         F: FnMut(FriendMessage) + Send + 'static,

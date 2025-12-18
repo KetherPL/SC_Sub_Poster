@@ -3,7 +3,7 @@ use std::time::Duration;
 use tokio::time::sleep;
 use SC_Sub_Poster::{
     LogOn, ChatRoomClient, chat_helpers, preprocessing_helpers,
-    FriendMessage, EnhancedGroupChatMessage, MessagePreprocessor,
+    FriendMessage, EnhancedGroupChatMessage, MessagePreprocessor, SendGroupMessageParams,
 };
 
 #[tokio::main]
@@ -125,7 +125,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let test_message = "test [mention=here]@online[/mention]";
     println!("Sending message: \"{}\"", test_message);
     
-    match chat_client.send_group_message(group_id, chat_id, test_message, true).await {
+    let params = SendGroupMessageParams::new(group_id, chat_id, test_message);
+    match chat_client.send_group_message(params).await {
         Ok(preprocessed_response) => {
             println!("✓ Group message sent successfully!");
             println!("  Original message: {}", preprocessed_response.original_message);

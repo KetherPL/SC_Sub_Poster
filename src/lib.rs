@@ -21,7 +21,7 @@ pub type LogOn = KetherSteamClient;
 // Re-export chat room types
 pub use chatroom::{
     ChatRoomClient, ChatRoomGroups, ChatRoomInfo, ChatRoomMessaging, ChatRoomNotifications,
-    FriendMessage, GroupChatMessage, EnhancedGroupChatMessage,
+    FriendMessage, GroupChatMessage, EnhancedGroupChatMessage, SendGroupMessageParams,
 };
 pub use chatroom::helpers as chat_helpers;
 

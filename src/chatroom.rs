@@ -76,6 +76,25 @@ pub struct EnhancedGroupChatMessage {
     pub preprocessed: PreprocessedMessage,
 }
 
+impl EnhancedGroupChatMessage {
+    /// Create an enhanced message from a notification, preserving the whole notification object
+    pub fn from_notification(
+        notification: &CChatRoom_IncomingChatMessage_Notification,
+    ) -> Self {
+        let preprocessed = MessagePreprocessor::preprocess_message(notification.message());
+        Self {
+            chat_group_id: notification.chat_group_id(),
+            chat_id: notification.chat_id(),
+            sender_steam_id: SteamID::from(notification.steamid_sender() as u64),
+            message: notification.message().to_string(),
+            timestamp: notification.timestamp(),
+            chat_name: notification.chat_name().to_string(),
+            ordinal: notification.ordinal(),
+            preprocessed,
+        }
+    }
+}
+
 /// Chat room client for Steam group chat functionality
 pub struct ChatRoomClient {
     connection: steam_vent::Connection,
@@ -94,6 +113,31 @@ pub struct ChatRoomMessaging<'a> {
 /// Notification listeners for chat and friend messages.
 pub struct ChatRoomNotifications<'a> {
     connection: &'a steam_vent::Connection,
+}
+
+/// Parameters for sending a group message
+#[derive(Debug, Clone)]
+pub struct SendGroupMessageParams {
+    pub chat_group_id: u64,
+    pub chat_id: u64,
+    pub message: String,
+    pub echo_to_sender: bool,
+}
+
+impl SendGroupMessageParams {
+    pub fn new(chat_group_id: u64, chat_id: u64, message: impl Into<String>) -> Self {
+        Self {
+            chat_group_id,
+            chat_id,
+            message: message.into(),
+            echo_to_sender: true,
+        }
+    }
+
+    pub fn with_echo_to_sender(mut self, echo: bool) -> Self {
+        self.echo_to_sender = echo;
+        self
+    }
 }
 
 struct NotificationStream<'a, T> {
@@ -164,19 +208,14 @@ impl ChatRoomClient {
     /// Send a message to a group chat with preprocessing
     #[instrument(
         name = "kether.chat.send_group_message",
-        skip(self, message),
-        fields(chat_group_id, chat_id)
+        skip(self, params),
+        fields(chat_group_id = params.chat_group_id, chat_id = params.chat_id)
     )]
     pub async fn send_group_message(
         &self,
-        chat_group_id: u64,
-        chat_id: u64,
-        message: &str,
-        echo_to_sender: bool,
+        params: SendGroupMessageParams,
     ) -> Result<PreprocessedMessage, Box<dyn Error>> {
-        self.messaging()
-            .send_group_message(chat_group_id, chat_id, message, echo_to_sender)
-            .await
+        self.messaging().send_group_message(params).await
     }
 
     /// Send a message to a friend
@@ -322,32 +361,43 @@ impl<'a> ChatRoomGroups<'a> {
 impl<'a> ChatRoomMessaging<'a> {
     pub async fn send_group_message(
         &self,
-        chat_group_id: u64,
-        chat_id: u64,
-        message: &str,
-        echo_to_sender: bool,
+        params: SendGroupMessageParams,
     ) -> Result<PreprocessedMessage, Box<dyn Error>> {
-        let prepared_message = MessagePreprocessor::prepare_message_for_sending(message);
-
-        let mut req = CChatRoom_SendChatMessage_Request::new();
-        req.set_chat_group_id(chat_group_id);
-        req.set_chat_id(chat_id);
-        req.set_message(prepared_message);
-        req.set_echo_to_sender(echo_to_sender);
-
+        let req = Self::build_send_message_request(&params);
         let response: CChatRoom_SendChatMessage_Response =
             self.connection.service_method(req).await?;
+        let final_preprocessed = Self::process_send_message_response(&params, &response);
 
-        let final_preprocessed = MessagePreprocessor::process_response(
-            message,
+        debug!(
+            chat_group_id = params.chat_group_id,
+            chat_id = params.chat_id,
+            ordinal = response.ordinal(),
+            "group message dispatched"
+        );
+
+        Ok(final_preprocessed)
+    }
+
+    fn build_send_message_request(params: &SendGroupMessageParams) -> CChatRoom_SendChatMessage_Request {
+        let prepared_message = MessagePreprocessor::prepare_message_for_sending(&params.message);
+        let mut req = CChatRoom_SendChatMessage_Request::new();
+        req.set_chat_group_id(params.chat_group_id);
+        req.set_chat_id(params.chat_id);
+        req.set_message(prepared_message);
+        req.set_echo_to_sender(params.echo_to_sender);
+        req
+    }
+
+    fn process_send_message_response(
+        params: &SendGroupMessageParams,
+        response: &CChatRoom_SendChatMessage_Response,
+    ) -> PreprocessedMessage {
+        MessagePreprocessor::process_response(
+            &params.message,
             response.modified_message(),
             response.server_timestamp(),
             response.ordinal(),
-        );
-
-        debug!(chat_group_id, chat_id, ordinal = response.ordinal(), "group message dispatched");
-
-        Ok(final_preprocessed)
+        )
     }
 
     #[instrument(
@@ -387,18 +437,7 @@ impl<'a> ChatRoomNotifications<'a> {
         let mut user_callback = callback;
         self.group_stream()
             .for_each(move |notification| {
-                let preprocessed = MessagePreprocessor::preprocess_message(notification.message());
-                let enhanced_message = EnhancedGroupChatMessage {
-                    chat_group_id: notification.chat_group_id(),
-                    chat_id: notification.chat_id(),
-                    sender_steam_id: SteamID::from(notification.steamid_sender()),
-                    message: notification.message().to_string(),
-                    timestamp: notification.timestamp(),
-                    chat_name: notification.chat_name().to_string(),
-                    ordinal: notification.ordinal(),
-                    preprocessed,
-                };
-
+                let enhanced_message = EnhancedGroupChatMessage::from_notification(&notification);
                 user_callback(enhanced_message)
             })
             .await
@@ -497,12 +536,12 @@ pub mod helpers {
 
     /// Create a message with @all mention
     pub fn create_message_with_all_mention(message: &str) -> String {
-        format!("@all {}", message)
+        format!("{} {}", crate::preprocessing::MENTION_ALL, message)
     }
 
     /// Create a message with @here mention
     pub fn create_message_with_here_mention(message: &str) -> String {
-        format!("@here {}", message)
+        format!("{} {}", crate::preprocessing::MENTION_HERE, message)
     }
 }
 

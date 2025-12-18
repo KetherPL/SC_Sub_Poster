@@ -28,8 +28,7 @@ impl KetherSteamClient {
             .await
             .map_err(|err| -> Box<dyn Error> { Box::new(LogonError::from(err)) })?;
 
-        ensure_valid_connection(&connection)
-            .map_err(|err| -> Box<dyn Error> { Box::new(err) })?;
+        let connection = Self::validate_and_finalize_connection(connection)?;
 
         info!(steam_id = %connection.steam_id().steam3(), "logon successful");
 
@@ -46,12 +45,18 @@ impl KetherSteamClient {
             .await
             .map_err(|err| -> Box<dyn Error> { Box::new(LogonError::from(err)) })?;
 
-        ensure_valid_connection(&connection)
-            .map_err(|err| -> Box<dyn Error> { Box::new(err) })?;
+        let connection = Self::validate_and_finalize_connection(connection)?;
 
         info!(steam_id = %connection.steam_id().steam3(), "anonymous logon successful");
 
         Ok(Self { connection })
+    }
+
+    /// Common validation and finalization logic for connections
+    fn validate_and_finalize_connection(connection: Connection) -> Result<Connection, Box<dyn Error>> {
+        ensure_valid_connection(&connection)
+            .map_err(|err| -> Box<dyn Error> { Box::new(err) })?;
+        Ok(connection)
     }
 
     /// Get the Steam ID of the connected user

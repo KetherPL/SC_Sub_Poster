@@ -10,6 +10,22 @@ const ALLOWED_BBCODE_TAGS: &[&str] = &[
     "tradeofferlink", "tradeoffer", "sticker", "gameinvite", "og", "roomeffect",
 ];
 
+// BBCode formatting type constants
+pub const BBCODE_TYPE_BOLD: &str = "bold";
+pub const BBCODE_TYPE_ITALIC: &str = "italic";
+pub const BBCODE_TYPE_UNDERLINE: &str = "underline";
+pub const BBCODE_TYPE_SPOILER: &str = "spoiler";
+pub const BBCODE_TYPE_CODE: &str = "code";
+pub const BBCODE_TYPE_URL: &str = "url";
+pub const BBCODE_TYPE_EMOTICON: &str = "emoticon";
+
+// Mention token constants
+pub const MENTION_ALL: &str = "@all";
+pub const MENTION_HERE: &str = "@here";
+
+// Punctuation characters to trim from mention tokens
+const MENTION_PUNCTUATION: &str = "!?,.;";
+
 /// Represents a BBCode node
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BBCodeNode {
@@ -32,6 +48,13 @@ pub struct ChatMentions {
     pub mention_all: bool,
     pub mention_here: bool,
     pub mention_steamids: Vec<MentionSteamId>,
+}
+
+impl ChatMentions {
+    /// Check if this mentions struct contains any mentions
+    fn has_any_mentions(&self) -> bool {
+        self.mention_all || self.mention_here || !self.mention_steamids.is_empty()
+    }
 }
 
 /// Wrapper around `SteamID` that supports serde serialization.
@@ -125,35 +148,47 @@ impl MessagePreprocessor {
         };
 
         for raw_token in message.split_whitespace() {
-            let token = raw_token.trim_matches(|c: char| "!?,.;".contains(c));
-            match token {
-                "@all" | "@everyone" => mentions.mention_all = true,
-                "@here" => mentions.mention_here = true,
-                _ if token.starts_with("[U:1:") && token.ends_with(']') => {
-                    if let Ok(steam_id) = SteamID::try_from(token) {
-                        mentions.mention_steamids.push(MentionSteamId::from(steam_id));
-                    }
-                }
-                _ => {}
-            }
+            Self::process_mention_token(raw_token, &mut mentions);
         }
 
-        if mentions.mention_all || mentions.mention_here || !mentions.mention_steamids.is_empty() {
+        if mentions.has_any_mentions() {
             Some(mentions)
         } else {
             None
         }
     }
 
+    /// Process a single token to detect mentions
+    fn process_mention_token(token: &str, mentions: &mut ChatMentions) {
+        let cleaned_token = token.trim_matches(|c: char| MENTION_PUNCTUATION.contains(c));
+        
+        if cleaned_token == MENTION_ALL {
+            mentions.mention_all = true;
+            return;
+        }
+
+        if cleaned_token == MENTION_HERE {
+            mentions.mention_here = true;
+            return;
+        }
+
+        if Self::is_steam_id_format(cleaned_token) {
+            if let Ok(steam_id) = SteamID::try_from(cleaned_token) {
+                mentions.mention_steamids.push(MentionSteamId::from(steam_id));
+            }
+        }
+    }
+
+    /// Check if a token matches Steam ID format [U:1:...]
+    fn is_steam_id_format(token: &str) -> bool {
+        token.starts_with("[U:1:") && token.ends_with(']')
+    }
+
     /// Convert a message with mentions to a format suitable for sending
     pub fn prepare_message_for_sending(message: &str) -> String {
         // Remove or escape special characters that might cause issues
-        let mut prepared = message.to_string();
-        
         // Basic escaping - in practice you'd want more sophisticated handling
-        prepared = prepared.replace("\\[", "[").replace("\\]", "]");
-        
-        prepared
+        message.replace("\\[", "[").replace("\\]", "]")
     }
 
     /// Process a response from Steam with preprocessing
@@ -188,31 +223,24 @@ pub mod helpers {
 
     /// Create an @all mention
     pub fn create_all_mention() -> String {
-        "@all".to_string()
+        super::MENTION_ALL.to_string()
     }
 
     /// Create an @here mention
     pub fn create_here_mention() -> String {
-        "@here".to_string()
+        super::MENTION_HERE.to_string()
     }
 
     /// Check if a message contains any mentions
     pub fn has_mentions(message: &str) -> bool {
-        message.contains("@all") || message.contains("@here") || message.contains("@")
+        message.contains(super::MENTION_ALL)
+            || message.contains(super::MENTION_HERE)
+            || message.contains("@")
     }
 
     /// Format a message with BBCode
     pub fn format_with_bbcode(message: &str, bbcode_type: &str, value: &str) -> String {
-        match bbcode_type {
-            "bold" => format!("[b]{}[/b]", message),
-            "italic" => format!("[i]{}[/i]", message),
-            "underline" => format!("[u]{}[/u]", message),
-            "spoiler" => format!("[spoiler]{}[/spoiler]", message),
-            "code" => format!("[code]{}[/code]", message),
-            "url" => format!("[url={}]{}[/url]", value, message),
-            "emoticon" => format!("[emoticon:{}]", value),
-            _ => message.to_string(),
-        }
+        super::bbcode::formatting::format_with_bbcode(message, bbcode_type, value)
     }
 }
 
@@ -220,8 +248,106 @@ mod bbcode {
     use super::{BBCodeContent, BBCodeNode};
     use std::collections::HashMap;
 
+    pub mod formatting {
+        use super::super::{
+            BBCODE_TYPE_BOLD, BBCODE_TYPE_CODE, BBCODE_TYPE_EMOTICON, BBCODE_TYPE_ITALIC,
+            BBCODE_TYPE_SPOILER, BBCODE_TYPE_UNDERLINE, BBCODE_TYPE_URL,
+        };
+
+        /// Trait for formatting messages with BBCode
+        trait BBCodeFormatter {
+            fn format(&self, message: &str, value: &str) -> String;
+        }
+
+        struct BoldFormatter;
+        struct ItalicFormatter;
+        struct UnderlineFormatter;
+        struct SpoilerFormatter;
+        struct CodeFormatter;
+        struct UrlFormatter;
+        struct EmoticonFormatter;
+        struct DefaultFormatter;
+
+        impl BBCodeFormatter for BoldFormatter {
+            fn format(&self, message: &str, _value: &str) -> String {
+                format!("[b]{}[/b]", message)
+            }
+        }
+
+        impl BBCodeFormatter for ItalicFormatter {
+            fn format(&self, message: &str, _value: &str) -> String {
+                format!("[i]{}[/i]", message)
+            }
+        }
+
+        impl BBCodeFormatter for UnderlineFormatter {
+            fn format(&self, message: &str, _value: &str) -> String {
+                format!("[u]{}[/u]", message)
+            }
+        }
+
+        impl BBCodeFormatter for SpoilerFormatter {
+            fn format(&self, message: &str, _value: &str) -> String {
+                format!("[spoiler]{}[/spoiler]", message)
+            }
+        }
+
+        impl BBCodeFormatter for CodeFormatter {
+            fn format(&self, message: &str, _value: &str) -> String {
+                format!("[code]{}[/code]", message)
+            }
+        }
+
+        impl BBCodeFormatter for UrlFormatter {
+            fn format(&self, message: &str, value: &str) -> String {
+                format!("[url={}]{}[/url]", value, message)
+            }
+        }
+
+        impl BBCodeFormatter for EmoticonFormatter {
+            fn format(&self, _message: &str, value: &str) -> String {
+                format!("[emoticon:{}]", value)
+            }
+        }
+
+        impl BBCodeFormatter for DefaultFormatter {
+            fn format(&self, message: &str, _value: &str) -> String {
+                message.to_string()
+            }
+        }
+
+        /// Get the appropriate formatter for a BBCode type
+        fn get_formatter(bbcode_type: &str) -> Box<dyn BBCodeFormatter> {
+            match bbcode_type {
+                BBCODE_TYPE_BOLD => Box::new(BoldFormatter),
+                BBCODE_TYPE_ITALIC => Box::new(ItalicFormatter),
+                BBCODE_TYPE_UNDERLINE => Box::new(UnderlineFormatter),
+                BBCODE_TYPE_SPOILER => Box::new(SpoilerFormatter),
+                BBCODE_TYPE_CODE => Box::new(CodeFormatter),
+                BBCODE_TYPE_URL => Box::new(UrlFormatter),
+                BBCODE_TYPE_EMOTICON => Box::new(EmoticonFormatter),
+                _ => Box::new(DefaultFormatter),
+            }
+        }
+
+        /// Format a message with BBCode using the strategy pattern
+        pub fn format_with_bbcode(message: &str, bbcode_type: &str, value: &str) -> String {
+            let formatter = get_formatter(bbcode_type);
+            formatter.format(message, value)
+        }
+    }
+
     pub struct Parser<'a> {
         allowed_tags: &'a [&'a str],
+    }
+
+    enum TagPosition<'a> {
+        Found {
+            text_before: &'a str,
+            tag_content: &'a str,
+            tag_length: usize,
+        },
+        EndOfText(&'a str),
     }
 
     impl<'a> Parser<'a> {
@@ -239,14 +365,15 @@ mod bbcode {
             let mut i = 0;
 
             while i < message.len() {
-                if let Some(tag_start) = message[i..].find('[') {
-                    if tag_start > 0 {
-                        current_text.push_str(&message[i..i + tag_start]);
-                    }
-
-                    if let Some(tag_end) = message[i + tag_start..].find(']') {
-                        let tag_content =
-                            &message[i + tag_start + 1..i + tag_start + tag_end];
+                match self.find_next_tag(&message[i..]) {
+                    TagPosition::Found {
+                        text_before,
+                        tag_content,
+                        tag_length,
+                    } => {
+                        if !text_before.is_empty() {
+                            current_text.push_str(text_before);
+                        }
 
                         if let Some(node) = self.parse_tag(tag_content) {
                             if !current_text.is_empty() {
@@ -256,18 +383,15 @@ mod bbcode {
                             }
                             parsed.push(BBCodeContent::Node(node));
                         } else {
-                            current_text
-                                .push_str(&message[i..i + tag_start + tag_end + 1]);
+                            current_text.push_str(&message[i..i + tag_length]);
                         }
 
-                        i += tag_start + tag_end + 1;
-                    } else {
-                        current_text.push_str(&message[i..]);
+                        i += tag_length;
+                    }
+                    TagPosition::EndOfText(remaining) => {
+                        current_text.push_str(remaining);
                         break;
                     }
-                } else {
-                    current_text.push_str(&message[i..]);
-                    break;
                 }
             }
 
@@ -278,6 +402,23 @@ mod bbcode {
             parsed
         }
 
+        fn find_next_tag<'b>(&self, text: &'b str) -> TagPosition<'b> {
+            if let Some(tag_start) = text.find('[') {
+                if let Some(tag_end) = text[tag_start..].find(']') {
+                    let tag_content = &text[tag_start + 1..tag_start + tag_end];
+                    TagPosition::Found {
+                        text_before: &text[..tag_start],
+                        tag_content,
+                        tag_length: tag_start + tag_end + 1,
+                    }
+                } else {
+                    TagPosition::EndOfText(text)
+                }
+            } else {
+                TagPosition::EndOfText(text)
+            }
+        }
+
         fn parse_tag(&self, tag_content: &str) -> Option<BBCodeNode> {
             let parts: Vec<&str> = tag_content.splitn(2, '=').collect();
             let tag_name = parts[0].trim();
@@ -286,21 +427,25 @@ mod bbcode {
                 return None;
             }
 
-            let mut attrs = HashMap::new();
-
-            if let Some(value) = parts
-                .get(1)
-                .map(|s| s.trim())
-                .filter(|value| !value.is_empty())
-            {
-                attrs.insert("value".to_string(), value.to_string());
-            }
+            let attrs = Self::extract_tag_attributes(&parts);
 
             Some(BBCodeNode {
                 tag: tag_name.to_string(),
                 attrs,
                 content: None,
             })
+        }
+
+        fn extract_tag_attributes(parts: &[&str]) -> HashMap<String, String> {
+            let mut attrs = HashMap::new();
+
+            let value = parts.get(1).map(|s| s.trim()).filter(|value| !value.is_empty());
+            
+            if let Some(value) = value {
+                attrs.insert("value".to_string(), value.to_string());
+            }
+
+            attrs
         }
     }
 

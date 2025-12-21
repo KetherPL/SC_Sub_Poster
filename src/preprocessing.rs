@@ -11,12 +11,6 @@ const ALLOWED_BBCODE_TAGS: &[&str] = &[
 ];
 
 // BBCode formatting type constants
-/// BBCode type constant for bold text formatting.
-pub const BBCODE_TYPE_BOLD: &str = "bold";
-/// BBCode type constant for italic text formatting.
-pub const BBCODE_TYPE_ITALIC: &str = "italic";
-/// BBCode type constant for underline text formatting.
-pub const BBCODE_TYPE_UNDERLINE: &str = "underline";
 /// BBCode type constant for spoiler text formatting.
 pub const BBCODE_TYPE_SPOILER: &str = "spoiler";
 /// BBCode type constant for code block formatting.
@@ -301,7 +295,7 @@ pub mod helpers {
     /// # Arguments
     ///
     /// * `message` - The message content to wrap in BBCode
-    /// * `bbcode_type` - The type of BBCode formatting (e.g., `BBCODE_TYPE_BOLD`)
+    /// * `bbcode_type` - The type of BBCode formatting (e.g., `BBCODE_TYPE_SPOILER`, `BBCODE_TYPE_CODE`)
     /// * `value` - Optional value for BBCode types that require it (e.g., URL for `BBCODE_TYPE_URL`)
     ///
     /// # Returns
@@ -318,8 +312,7 @@ mod bbcode {
 
     pub mod formatting {
         use super::super::{
-            BBCODE_TYPE_BOLD, BBCODE_TYPE_CODE, BBCODE_TYPE_EMOTICON, BBCODE_TYPE_ITALIC,
-            BBCODE_TYPE_SPOILER, BBCODE_TYPE_UNDERLINE, BBCODE_TYPE_URL,
+            BBCODE_TYPE_CODE, BBCODE_TYPE_EMOTICON, BBCODE_TYPE_SPOILER, BBCODE_TYPE_URL,
         };
 
         /// Trait for formatting messages with BBCode
@@ -327,32 +320,11 @@ mod bbcode {
             fn format(&self, message: &str, value: &str) -> String;
         }
 
-        struct BoldFormatter;
-        struct ItalicFormatter;
-        struct UnderlineFormatter;
         struct SpoilerFormatter;
         struct CodeFormatter;
         struct UrlFormatter;
         struct EmoticonFormatter;
         struct DefaultFormatter;
-
-        impl BBCodeFormatter for BoldFormatter {
-            fn format(&self, message: &str, _value: &str) -> String {
-                format!("[b]{}[/b]", message)
-            }
-        }
-
-        impl BBCodeFormatter for ItalicFormatter {
-            fn format(&self, message: &str, _value: &str) -> String {
-                format!("[i]{}[/i]", message)
-            }
-        }
-
-        impl BBCodeFormatter for UnderlineFormatter {
-            fn format(&self, message: &str, _value: &str) -> String {
-                format!("[u]{}[/u]", message)
-            }
-        }
 
         impl BBCodeFormatter for SpoilerFormatter {
             fn format(&self, message: &str, _value: &str) -> String {
@@ -387,9 +359,6 @@ mod bbcode {
         /// Get the appropriate formatter for a BBCode type
         fn get_formatter(bbcode_type: &str) -> Box<dyn BBCodeFormatter> {
             match bbcode_type {
-                BBCODE_TYPE_BOLD => Box::new(BoldFormatter),
-                BBCODE_TYPE_ITALIC => Box::new(ItalicFormatter),
-                BBCODE_TYPE_UNDERLINE => Box::new(UnderlineFormatter),
                 BBCODE_TYPE_SPOILER => Box::new(SpoilerFormatter),
                 BBCODE_TYPE_CODE => Box::new(CodeFormatter),
                 BBCODE_TYPE_URL => Box::new(UrlFormatter),

@@ -1,6 +1,6 @@
 [package]
 name = "SC_Sub_Poster"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2021"
 authors = ["Dominik Adrian Grzywak <starterx4@gmail.com>"]
 description = "Minimal port of NodeJS steam-user library to Rust just for sending messages to group chats"

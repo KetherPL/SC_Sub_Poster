@@ -16,6 +16,9 @@ use steam_vent::proto::steammessages_chat_steamclient::{
     CChatRoom_IncomingChatMessage_Notification,
     CChatRoom_GetChatRoomGroupState_Request,
     CChatRoom_GetChatRoomGroupState_Response,
+    CChatRoom_DeleteChatMessages_Request,
+    CChatRoom_DeleteChatMessages_Response,
+    cchat_room_delete_chat_messages_request,
 };
 use steam_vent::proto::steammessages_friendmessages_steamclient::{
     CFriendMessages_SendMessage_Request,
@@ -355,6 +358,79 @@ impl ChatRoomClient {
             .await
     }
 
+    /// Delete one or more group chat messages.
+    ///
+    /// Messages are identified by their `server_timestamp` and `ordinal` values,
+    /// which are returned when sending messages via `send_group_message()`.
+    ///
+    /// # Arguments
+    ///
+    /// * `chat_group_id` - The unique identifier for the chat group
+    /// * `chat_id` - The unique identifier for the specific chat room within the group
+    /// * `messages` - A vector of (server_timestamp, ordinal) tuples identifying messages to delete
+    ///
+    /// # Returns
+    ///
+    /// The Steam API response confirming the deletion.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the deletion request fails. Note that attempting to delete
+    /// messages that have already been deleted or don't exist may not result in an error.
+    #[instrument(
+        name = "kether.chat.delete_group_messages",
+        skip(self, messages),
+        fields(chat_group_id, chat_id, message_count = messages.len())
+    )]
+    pub async fn delete_group_messages(
+        &self,
+        chat_group_id: u64,
+        chat_id: u64,
+        messages: Vec<(u32, u32)>,
+    ) -> Result<CChatRoom_DeleteChatMessages_Response, Box<dyn Error>> {
+        self.messaging()
+            .delete_group_messages(chat_group_id, chat_id, messages)
+            .await
+    }
+
+    /// Delete group chat messages from `PreprocessedMessage` objects.
+    ///
+    /// This is a convenience method that extracts message identifiers from
+    /// `PreprocessedMessage` objects (returned by `send_group_message()`) and deletes them.
+    /// Any messages where `server_timestamp` or `ordinal` is `None` will be skipped with a warning.
+    ///
+    /// # Arguments
+    ///
+    /// * `chat_group_id` - The unique identifier for the chat group
+    /// * `chat_id` - The unique identifier for the specific chat room within the group
+    /// * `messages` - A vector of `PreprocessedMessage` objects to delete
+    ///
+    /// # Returns
+    ///
+    /// The Steam API response confirming the deletion, or an error if no valid messages
+    /// were found or the deletion request fails.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no valid message identifiers are found (all messages had
+    /// missing `server_timestamp` or `ordinal`), if the messages list is empty, or if
+    /// the deletion request fails.
+    #[instrument(
+        name = "kether.chat.delete_group_messages_from_preprocessed",
+        skip(self, messages),
+        fields(chat_group_id, chat_id, input_message_count = messages.len())
+    )]
+    pub async fn delete_group_messages_from_preprocessed(
+        &self,
+        chat_group_id: u64,
+        chat_id: u64,
+        messages: Vec<PreprocessedMessage>,
+    ) -> Result<CChatRoom_DeleteChatMessages_Response, Box<dyn Error>> {
+        self.messaging()
+            .delete_group_messages_from_preprocessed(chat_group_id, chat_id, messages)
+            .await
+    }
+
     /// Get the current state of a chat room group.
     ///
     /// # Arguments
@@ -663,6 +739,169 @@ impl<'a> ChatRoomMessaging<'a> {
             "friend message dispatched"
         );
         Ok(response)
+    }
+
+    /// Delete one or more group chat messages.
+    ///
+    /// Messages are identified by their `server_timestamp` and `ordinal` values,
+    /// which are returned when sending messages via `send_group_message()`.
+    ///
+    /// # Arguments
+    ///
+    /// * `chat_group_id` - The unique identifier for the chat group
+    /// * `chat_id` - The unique identifier for the specific chat room within the group
+    /// * `messages` - A vector of (server_timestamp, ordinal) tuples identifying messages to delete
+    ///
+    /// # Returns
+    ///
+    /// The Steam API response confirming the deletion.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the deletion request fails. Note that attempting to delete
+    /// messages that have already been deleted or don't exist may not result in an error.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// // After sending a message and receiving a PreprocessedMessage:
+    /// let preprocessed = client.send_group_message(params).await?;
+    /// if let (Some(ts), Some(ord)) = (preprocessed.server_timestamp, preprocessed.ordinal) {
+    ///     client.messaging().delete_group_messages(
+    ///         chat_group_id,
+    ///         chat_id,
+    ///         vec![(ts, ord)]
+    ///     ).await?;
+    /// }
+    /// ```
+    #[instrument(
+        name = "kether.chat.delete_group_messages",
+        skip(self, messages),
+        fields(chat_group_id, chat_id, message_count = messages.len())
+    )]
+    pub async fn delete_group_messages(
+        &self,
+        chat_group_id: u64,
+        chat_id: u64,
+        messages: Vec<(u32, u32)>,
+    ) -> Result<CChatRoom_DeleteChatMessages_Response, Box<dyn Error>> {
+        if messages.is_empty() {
+            return Err("Cannot delete empty list of messages".into());
+        }
+
+        let message_count = messages.len();
+        let mut req = CChatRoom_DeleteChatMessages_Request::new();
+        req.set_chat_group_id(chat_group_id);
+        req.set_chat_id(chat_id);
+
+        // Convert (server_timestamp, ordinal) tuples to Message structs
+        for (server_timestamp, ordinal) in messages {
+            let mut msg = cchat_room_delete_chat_messages_request::Message::new();
+            msg.set_server_timestamp(server_timestamp);
+            msg.set_ordinal(ordinal);
+            req.messages.push(msg);
+        }
+
+        let response: CChatRoom_DeleteChatMessages_Response =
+            self.connection.service_method(req).await?;
+
+        debug!(
+            chat_group_id,
+            chat_id,
+            message_count,
+            "group messages deleted"
+        );
+
+        Ok(response)
+    }
+
+    /// Delete group chat messages from `PreprocessedMessage` objects.
+    ///
+    /// This is a convenience method that extracts message identifiers from
+    /// `PreprocessedMessage` objects (returned by `send_group_message()`) and deletes them.
+    /// Any messages where `server_timestamp` or `ordinal` is `None` will be skipped with a warning.
+    ///
+    /// # Arguments
+    ///
+    /// * `chat_group_id` - The unique identifier for the chat group
+    /// * `chat_id` - The unique identifier for the specific chat room within the group
+    /// * `messages` - A vector of `PreprocessedMessage` objects to delete
+    ///
+    /// # Returns
+    ///
+    /// The Steam API response confirming the deletion, or an error if no valid messages
+    /// were found or the deletion request fails.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no valid message identifiers are found (all messages had
+    /// missing `server_timestamp` or `ordinal`), if the messages list is empty, or if
+    /// the deletion request fails.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// // Send a message and store it
+    /// let sent_message = client.send_group_message(params).await?;
+    ///
+    /// // Later, delete it
+    /// client.messaging().delete_group_messages_from_preprocessed(
+    ///     chat_group_id,
+    ///     chat_id,
+    ///     vec![sent_message]
+    /// ).await?;
+    /// ```
+    #[instrument(
+        name = "kether.chat.delete_group_messages_from_preprocessed",
+        skip(self, messages),
+        fields(chat_group_id, chat_id, input_message_count = messages.len())
+    )]
+    pub async fn delete_group_messages_from_preprocessed(
+        &self,
+        chat_group_id: u64,
+        chat_id: u64,
+        messages: Vec<PreprocessedMessage>,
+    ) -> Result<CChatRoom_DeleteChatMessages_Response, Box<dyn Error>> {
+        // Extract valid (server_timestamp, ordinal) pairs, filtering out None values
+        let mut message_identifiers = Vec::new();
+        let mut skipped_count = 0;
+
+        for msg in &messages {
+            match (msg.server_timestamp, msg.ordinal) {
+                (Some(ts), Some(ord)) => {
+                    message_identifiers.push((ts, ord));
+                }
+                _ => {
+                    skipped_count += 1;
+                    tracing::warn!(
+                        "Skipping message deletion: missing server_timestamp or ordinal"
+                    );
+                }
+            }
+        }
+
+        if message_identifiers.is_empty() {
+            if skipped_count > 0 {
+                return Err(format!(
+                    "All {} message(s) had missing server_timestamp or ordinal",
+                    messages.len()
+                )
+                .into());
+            } else {
+                return Err("Cannot delete empty list of messages".into());
+            }
+        }
+
+        if skipped_count > 0 {
+            tracing::warn!(
+                skipped_count,
+                total = messages.len(),
+                "Skipped messages with missing identifiers"
+            );
+        }
+
+        self.delete_group_messages(chat_group_id, chat_id, message_identifiers)
+            .await
     }
 }
 

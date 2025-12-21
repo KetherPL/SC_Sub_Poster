@@ -28,7 +28,7 @@ use steam_vent::proto::steammessages_friendmessages_steamclient::{
 use steam_vent::ConnectionTrait;
 use steamid_ng::SteamID;
 use thiserror::Error;
-use tokio::time::sleep;
+use tokio::time::{sleep, timeout, Duration as TokioDuration};
 use tokio_stream::{Stream, StreamExt};
 use crate::preprocessing::{MessagePreprocessor, PreprocessedMessage};
 use tracing::{debug, instrument};
@@ -664,16 +664,75 @@ impl<'a> ChatRoomMessaging<'a> {
         let req = Self::build_send_message_request(&params);
         let response: CChatRoom_SendChatMessage_Response =
             self.connection.service_method(req).await?;
-        let final_preprocessed = Self::process_send_message_response(&params, &response);
+        let mut final_preprocessed = Self::process_send_message_response(&params, &response);
+
+        // If echo_to_sender is true and ordinal is not available, wait for the echo notification
+        // to get the correct ordinal (which is needed for message deletion)
+        if params.echo_to_sender && final_preprocessed.ordinal.is_none() {
+            if let Ok(notification) = Self::wait_for_echo_notification(
+                self.connection,
+                params.chat_group_id,
+                params.chat_id,
+                TokioDuration::from_secs(5),
+            ).await {
+                // Update the preprocessed message with ordinal and timestamp from notification
+                final_preprocessed.ordinal = Some(notification.ordinal());
+                final_preprocessed.server_timestamp = Some(notification.timestamp());
+            } else {
+                tracing::warn!(
+                    chat_group_id = params.chat_group_id,
+                    chat_id = params.chat_id,
+                    "Timeout waiting for echo notification; ordinal not available for deletion"
+                );
+            }
+        }
 
         debug!(
             chat_group_id = params.chat_group_id,
             chat_id = params.chat_id,
-            ordinal = response.ordinal(),
+            ordinal = final_preprocessed.ordinal.unwrap_or(0),
             "group message dispatched"
         );
 
         Ok(final_preprocessed)
+    }
+
+    /// Wait for an echo notification matching the given chat_group_id and chat_id.
+    ///
+    /// This is used to get the ordinal from the echo notification when sending a message.
+    async fn wait_for_echo_notification(
+        connection: &steam_vent::Connection,
+        chat_group_id: u64,
+        chat_id: u64,
+        timeout_duration: TokioDuration,
+    ) -> Result<CChatRoom_IncomingChatMessage_Notification, Box<dyn Error>> {
+        let stream = connection
+            .on_notification::<CChatRoom_IncomingChatMessage_Notification>()
+            .throttle(Duration::from_millis(25));
+        
+        let mut pinned_stream: Pin<Box<dyn Stream<Item = Result<CChatRoom_IncomingChatMessage_Notification, steam_vent::NetworkError>> + Send>> = 
+            Box::pin(stream);
+
+        let result = timeout(timeout_duration, async move {
+            loop {
+                if let Some(Ok(notification)) = StreamExt::next(&mut pinned_stream).await {
+                    // Match notification to our sent message by chat_group_id and chat_id
+                    if notification.chat_group_id() == chat_group_id
+                        && notification.chat_id() == chat_id
+                    {
+                        return Ok(notification);
+                    }
+                } else {
+                    return Err("Notification stream ended".into());
+                }
+            }
+        }).await;
+
+        match result {
+            Ok(Ok(notification)) => Ok(notification),
+            Ok(Err(e)) => Err(e),
+            Err(_) => Err("Timeout waiting for echo notification".into()),
+        }
     }
 
     fn build_send_message_request(params: &SendGroupMessageParams) -> CChatRoom_SendChatMessage_Request {
@@ -690,12 +749,49 @@ impl<'a> ChatRoomMessaging<'a> {
         params: &SendGroupMessageParams,
         response: &CChatRoom_SendChatMessage_Response,
     ) -> PreprocessedMessage {
+        // Steam may not populate ordinal in the response (or set it to 0).
+        // If echo_to_sender is true, the ordinal will be available in the notification.
+        // process_response will set ordinal to None if it's 0, indicating it needs to be
+        // obtained from the notification.
+        let ordinal = if response.has_ordinal() {
+            response.ordinal()
+        } else {
+            // Not set in response - will be available in notification if echo_to_sender is true
+            0
+        };
+        
         MessagePreprocessor::process_response(
             &params.message,
             response.modified_message(),
             response.server_timestamp(),
-            response.ordinal(),
+            ordinal,
         )
+    }
+
+    /// Update a PreprocessedMessage with ordinal and timestamp from a notification.
+    ///
+    /// This is useful when you need the ordinal from the echo notification to delete a message.
+    ///
+    /// # Arguments
+    ///
+    /// * `preprocessed` - The PreprocessedMessage to update
+    /// * `notification` - The incoming chat message notification containing the ordinal
+    ///
+    /// # Returns
+    ///
+    /// A new PreprocessedMessage with updated ordinal and server_timestamp from the notification.
+    pub fn update_preprocessed_from_notification(
+        preprocessed: &PreprocessedMessage,
+        notification: &CChatRoom_IncomingChatMessage_Notification,
+    ) -> PreprocessedMessage {
+        PreprocessedMessage {
+            original_message: preprocessed.original_message.clone(),
+            modified_message: notification.message().to_string(),
+            message_bbcode_parsed: MessagePreprocessor::parse_bbcode(notification.message()),
+            mentions: MessagePreprocessor::extract_mentions(notification.message()),
+            server_timestamp: Some(notification.timestamp()),
+            ordinal: Some(notification.ordinal()),
+        }
     }
 
     /// Send a message to a friend.

@@ -232,7 +232,7 @@ impl MessagePreprocessor {
             message_bbcode_parsed,
             mentions,
             server_timestamp: Some(server_timestamp),
-            ordinal: Some(ordinal),
+            ordinal: if ordinal > 0 { Some(ordinal) } else { None },
         }
     }
 }

@@ -28,7 +28,7 @@ use steam_vent::proto::steammessages_friendmessages_steamclient::{
 use steam_vent::ConnectionTrait;
 use steamid_ng::SteamID;
 use thiserror::Error;
-use tokio::time::{sleep, timeout, Duration as TokioDuration};
+use tokio::time::sleep;
 use tokio_stream::{Stream, StreamExt};
 use crate::preprocessing::{MessagePreprocessor, PreprocessedMessage};
 use tracing::{debug, instrument};
@@ -664,28 +664,12 @@ impl<'a> ChatRoomMessaging<'a> {
         let req = Self::build_send_message_request(&params);
         let response: CChatRoom_SendChatMessage_Response =
             self.connection.service_method(req).await?;
-        let mut final_preprocessed = Self::process_send_message_response(&params, &response);
+        let final_preprocessed = Self::process_send_message_response(&params, &response);
 
-        // If echo_to_sender is true and ordinal is not available, wait for the echo notification
-        // to get the correct ordinal (which is needed for message deletion)
-        if params.echo_to_sender && final_preprocessed.ordinal.is_none() {
-            if let Ok(notification) = Self::wait_for_echo_notification(
-                self.connection,
-                params.chat_group_id,
-                params.chat_id,
-                TokioDuration::from_secs(5),
-            ).await {
-                // Update the preprocessed message with ordinal and timestamp from notification
-                final_preprocessed.ordinal = Some(notification.ordinal());
-                final_preprocessed.server_timestamp = Some(notification.timestamp());
-            } else {
-                tracing::warn!(
-                    chat_group_id = params.chat_group_id,
-                    chat_id = params.chat_id,
-                    "Timeout waiting for echo notification; ordinal not available for deletion"
-                );
-            }
-        }
+        // According to DrMcKay's wiki, the response has both server_timestamp and ordinal.
+        // Ordinal can be 0 (and can be omitted in deletion requests if 0).
+        // The response values are sufficient for deletion, so we don't need to wait for the notification.
+        // This avoids unnecessary delays.
 
         debug!(
             chat_group_id = params.chat_group_id,
@@ -695,44 +679,6 @@ impl<'a> ChatRoomMessaging<'a> {
         );
 
         Ok(final_preprocessed)
-    }
-
-    /// Wait for an echo notification matching the given chat_group_id and chat_id.
-    ///
-    /// This is used to get the ordinal from the echo notification when sending a message.
-    async fn wait_for_echo_notification(
-        connection: &steam_vent::Connection,
-        chat_group_id: u64,
-        chat_id: u64,
-        timeout_duration: TokioDuration,
-    ) -> Result<CChatRoom_IncomingChatMessage_Notification, Box<dyn Error>> {
-        let stream = connection
-            .on_notification::<CChatRoom_IncomingChatMessage_Notification>()
-            .throttle(Duration::from_millis(25));
-        
-        let mut pinned_stream: Pin<Box<dyn Stream<Item = Result<CChatRoom_IncomingChatMessage_Notification, steam_vent::NetworkError>> + Send>> = 
-            Box::pin(stream);
-
-        let result = timeout(timeout_duration, async move {
-            loop {
-                if let Some(Ok(notification)) = StreamExt::next(&mut pinned_stream).await {
-                    // Match notification to our sent message by chat_group_id and chat_id
-                    if notification.chat_group_id() == chat_group_id
-                        && notification.chat_id() == chat_id
-                    {
-                        return Ok(notification);
-                    }
-                } else {
-                    return Err("Notification stream ended".into());
-                }
-            }
-        }).await;
-
-        match result {
-            Ok(Ok(notification)) => Ok(notification),
-            Ok(Err(e)) => Err(e),
-            Err(_) => Err("Timeout waiting for echo notification".into()),
-        }
     }
 
     fn build_send_message_request(params: &SendGroupMessageParams) -> CChatRoom_SendChatMessage_Request {
@@ -886,15 +832,57 @@ impl<'a> ChatRoomMessaging<'a> {
         }
 
         let message_count = messages.len();
+        
+        // Log what we're trying to delete for debugging
+        let timestamps: Vec<u32> = messages.iter().map(|(ts, _)| *ts).collect();
+        let ordinals: Vec<u32> = messages.iter().map(|(_, ord)| *ord).collect();
+        debug!(
+            chat_group_id,
+            chat_id,
+            message_count,
+            ?timestamps,
+            ?ordinals,
+            "Attempting to delete messages"
+        );
+        
         let mut req = CChatRoom_DeleteChatMessages_Request::new();
         req.set_chat_group_id(chat_group_id);
         req.set_chat_id(chat_id);
 
         // Convert (server_timestamp, ordinal) tuples to Message structs
+        // According to DrMcKay's wiki, ordinal can be omitted if 0, but server_timestamp must be non-zero
         for (server_timestamp, ordinal) in messages {
+            // Validate server_timestamp - it must be non-zero
+            if server_timestamp == 0 {
+                tracing::error!(
+                    server_timestamp,
+                    ordinal,
+                    "Cannot delete message: server_timestamp is zero (invalid)"
+                );
+                return Err(format!(
+                    "Invalid message identifier for deletion: server_timestamp={} (must be non-zero). Ordinal={} is allowed to be 0.",
+                    server_timestamp, ordinal
+                ).into());
+            }
+            // Ordinal can be 0 (it can be omitted in deletion requests per DrMcKay's wiki)
+            
             let mut msg = cchat_room_delete_chat_messages_request::Message::new();
             msg.set_server_timestamp(server_timestamp);
             msg.set_ordinal(ordinal);
+            
+            // Verify both fields are actually set in the protobuf message
+            if !msg.has_server_timestamp() || !msg.has_ordinal() {
+                tracing::error!(
+                    server_timestamp,
+                    ordinal,
+                    "Message fields not properly set in protobuf for deletion"
+                );
+                return Err(format!(
+                    "Failed to set message fields in protobuf: server_timestamp={}, ordinal={}",
+                    server_timestamp, ordinal
+                ).into());
+            }
+            
             req.messages.push(msg);
         }
 
@@ -964,13 +952,26 @@ impl<'a> ChatRoomMessaging<'a> {
 
         for msg in &messages {
             match (msg.server_timestamp, msg.ordinal) {
-                (Some(ts), Some(ord)) => {
+                (Some(ts), Some(ord)) if ts > 0 => {
+                    // server_timestamp must be non-zero, but ordinal can be 0 (per DrMcKay's wiki)
                     message_identifiers.push((ts, ord));
+                }
+                (Some(ts), Some(ord)) if ts == 0 => {
+                    skipped_count += 1;
+                    tracing::warn!(
+                        server_timestamp = ts,
+                        ordinal = ord,
+                        "Skipping message deletion: server_timestamp is zero (invalid)"
+                    );
+                }
+                (Some(ts), None) if ts > 0 => {
+                    // server_timestamp is valid, ordinal is None - use 0 (ordinal can be omitted if 0)
+                    message_identifiers.push((ts, 0));
                 }
                 _ => {
                     skipped_count += 1;
                     tracing::warn!(
-                        "Skipping message deletion: missing server_timestamp or ordinal"
+                        "Skipping message deletion: missing server_timestamp"
                     );
                 }
             }

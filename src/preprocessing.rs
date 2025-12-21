@@ -232,7 +232,9 @@ impl MessagePreprocessor {
             message_bbcode_parsed,
             mentions,
             server_timestamp: Some(server_timestamp),
-            ordinal: if ordinal > 0 { Some(ordinal) } else { None },
+            // Ordinal can be 0 (per DoctorMcKay's node-steam-user wiki (https://github.com/DoctorMcKay/node-steam-user/wiki/SteamChatRoomClient?utm_source=copilot.com#deletechatmessagesgroupid-chatid-messages-callback), it can be omitted in deletion if 0)
+            // So we keep it as Some(0) instead of None
+            ordinal: Some(ordinal),
         }
     }
 }

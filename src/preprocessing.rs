@@ -394,6 +394,22 @@ mod bbcode {
             Self { allowed_tags }
         }
 
+        fn slice_from<'b>(text: &'b str, start: usize) -> &'b str {
+            let safe_start = text.ceil_char_boundary(start);
+            &text[safe_start..]
+        }
+
+        fn slice_range<'b>(text: &'b str, start: usize, end: usize) -> &'b str {
+            let safe_start = text.ceil_char_boundary(start);
+            let safe_end = text.floor_char_boundary(end.min(text.len()));
+
+            if safe_start >= safe_end {
+                ""
+            } else {
+                &text[safe_start..safe_end]
+            }
+        }
+
         pub fn parse(&self, message: &str) -> Vec<BBCodeContent> {
             if message.is_empty() {
                 return vec![BBCodeContent::String(message.to_string())];
@@ -404,7 +420,7 @@ mod bbcode {
             let mut i = 0;
 
             while i < message.len() {
-                match self.find_next_tag(&message[i..]) {
+                match self.find_next_tag(Self::slice_from(message, i)) {
                     TagPosition::Found {
                         text_before,
                         tag_content,
@@ -422,7 +438,7 @@ mod bbcode {
                             }
                             parsed.push(BBCodeContent::Node(node));
                         } else {
-                            current_text.push_str(&message[i..i + tag_length]);
+                            current_text.push_str(Self::slice_range(message, i, i + tag_length));
                         }
 
                         i += tag_length;
@@ -444,9 +460,9 @@ mod bbcode {
         fn find_next_tag<'b>(&self, text: &'b str) -> TagPosition<'b> {
             if let Some(tag_start) = text.find('[') {
                 if let Some(tag_end) = text[tag_start..].find(']') {
-                    let tag_content = &text[tag_start + 1..tag_start + tag_end];
+                    let tag_content = Self::slice_range(text, tag_start + 1, tag_start + tag_end);
                     TagPosition::Found {
-                        text_before: &text[..tag_start],
+                        text_before: Self::slice_range(text, 0, tag_start),
                         tag_content,
                         tag_length: tag_start + tag_end + 1,
                     }
@@ -551,6 +567,21 @@ mod tests {
 
         assert_eq!(parsed.len(), 1);
         assert!(matches!(parsed[0], BBCodeContent::String(_)));
+    }
+
+    #[test]
+    fn test_bbcode_parser_handles_unicode_near_tags() {
+        let parser = bbcode::Parser::new(&["spoiler"]);
+        let parsed = parser.parse("zażółć🙂[spoiler]gęślą jaźń[/spoiler]世界");
+
+        assert!(parsed.len() >= 2);
+        assert!(matches!(&parsed[0], BBCodeContent::String(text) if text == "zażółć🙂"));
+        assert!(parsed.iter().any(|content| {
+            matches!(content, BBCodeContent::Node(node) if node.tag == "spoiler")
+        }));
+        assert!(parsed.iter().any(|content| {
+            matches!(content, BBCodeContent::String(text) if text.contains("世界"))
+        }));
     }
 
     #[test]

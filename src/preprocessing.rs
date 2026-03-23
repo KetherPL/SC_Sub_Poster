@@ -197,10 +197,10 @@ impl MessagePreprocessor {
             return;
         }
 
-        if Self::is_steam_id_format(cleaned_token) {
-            if let Ok(steam_id) = SteamID::try_from(cleaned_token) {
-                mentions.mention_steamids.push(MentionSteamId::from(steam_id));
-            }
+        if Self::is_steam_id_format(cleaned_token)
+            && let Ok(steam_id) = SteamID::try_from(cleaned_token)
+        {
+            mentions.mention_steamids.push(MentionSteamId::from(steam_id));
         }
     }
 
@@ -458,16 +458,14 @@ mod bbcode {
         }
 
         fn find_next_tag<'b>(&self, text: &'b str) -> TagPosition<'b> {
-            if let Some(tag_start) = text.find('[') {
-                if let Some(tag_end) = text[tag_start..].find(']') {
-                    let tag_content = Self::slice_range(text, tag_start + 1, tag_start + tag_end);
-                    TagPosition::Found {
-                        text_before: Self::slice_range(text, 0, tag_start),
-                        tag_content,
-                        tag_length: tag_start + tag_end + 1,
-                    }
-                } else {
-                    TagPosition::EndOfText(text)
+            if let Some(tag_start) = text.find('[')
+                && let Some(tag_end) = text[tag_start..].find(']')
+            {
+                let tag_content = Self::slice_range(text, tag_start + 1, tag_start + tag_end);
+                TagPosition::Found {
+                    text_before: Self::slice_range(text, 0, tag_start),
+                    tag_content,
+                    tag_length: tag_start + tag_end + 1,
                 }
             } else {
                 TagPosition::EndOfText(text)

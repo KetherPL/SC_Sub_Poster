@@ -10,7 +10,7 @@ use steam_vent::auth::{
     FileGuardDataStore,
 };
 use steam_vent::{Connection, ConnectionTrait, ServerList};
-use steamid_ng2::SteamID;
+use steamid_ng3::SteamID;
 
 /// Steam client wrapper for authenticated and anonymous operations
 pub struct KetherSteamClient {
@@ -82,7 +82,7 @@ impl KetherSteamClient {
     /// Test if the connection is working by requesting app info
     #[instrument(name = "kether.logon.test_connection", skip(self))]
     pub async fn test_connection(&self) -> Result<(), Box<dyn Error>> {
-        use steam_vent::proto::steammessages_clientserver_appinfo::{
+        use steam_vent_proto::steammessages_clientserver_appinfo::{
             cmsg_client_picsproduct_info_request, CMsgClientPICSProductInfoRequest,
             CMsgClientPICSProductInfoResponse,
         };
@@ -106,7 +106,7 @@ impl KetherSteamClient {
 
     /// Get owned games for the logged-in user
     pub async fn get_owned_games(&self) -> Result<Vec<GameInfo>, Box<dyn Error>> {
-        use steam_vent::proto::steammessages_player_steamclient::CPlayer_GetOwnedGames_Request;
+        use steam_vent_proto::steammessages_player_steamclient::CPlayer_GetOwnedGames_Request;
 
         let req = CPlayer_GetOwnedGames_Request {
             steamid: Some(self.connection.steam_id().into()),

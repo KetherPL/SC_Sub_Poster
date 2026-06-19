@@ -4,7 +4,7 @@ use std::error::Error;
 use futures_util::StreamExt as FuturesStreamExt;
 use std::pin::Pin;
 use std::time::Duration;
-use steam_vent::proto::steammessages_chat_steamclient::{
+use steam_vent_proto::steammessages_chat_steamclient::{
     CChatRoom_GetMyChatRoomGroups_Request,
     CChatRoom_GetMyChatRoomGroups_Response,
     CChatRoom_JoinChatRoomGroup_Request,
@@ -20,7 +20,7 @@ use steam_vent::proto::steammessages_chat_steamclient::{
     CChatRoom_DeleteChatMessages_Response,
     cchat_room_delete_chat_messages_request,
 };
-use steam_vent::proto::steammessages_friendmessages_steamclient::{
+use steam_vent_proto::steammessages_friendmessages_steamclient::{
     CFriendMessages_SendMessage_Request,
     CFriendMessages_SendMessage_Response,
     CFriendMessages_IncomingMessage_Notification,

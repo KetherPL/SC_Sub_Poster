@@ -1,6 +1,6 @@
 [package]
 name = "SC_Sub_Poster"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2024"
 authors = ["Dominik Adrian Grzywak <starterx4@gmail.com>"]
 description = "Minimal port of NodeJS steam-user library to Rust just for sending messages to group chats"
@@ -14,7 +14,7 @@ tokio = { version = "1.x", features = ["full", "macros", "rt", "rt-multi-thread"
 tokio-stream = "0.1"
 tracing-subscriber = "0.3"
 steamid-ng = "1.0.0"
-steamid-ng3 = { version = "3.0", package = "steamid-ng" } #logon.rs version missmatch as steam-vent uses v2 but we stick to v1
+steamid-ng3 = { version = "3.0", package = "steamid-ng" } #logon.rs version missmatch as steam-vent uses v3 but we stick to v1
 serde = { version = "1.0", features = ["derive"] }
 steam-vent = "0.5.0"
 steam-vent-proto = "0.5.2"

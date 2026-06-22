@@ -50,6 +50,17 @@ pub struct ChatRoomInfo {
     pub is_joined: bool,
 }
 
+/// A chat group and all chat rooms returned by `GetMyChatRoomGroups`.
+#[derive(Debug, Clone)]
+pub struct ChatGroupInfo {
+    /// The unique identifier for the chat group.
+    pub chat_group_id: u64,
+    /// The display name of the chat group.
+    pub chat_group_name: String,
+    /// Chat rooms within this group.
+    pub chats: Vec<ChatRoomInfo>,
+}
+
 /// Friend message information
 #[derive(Debug, Clone)]
 pub struct FriendMessage {
@@ -263,6 +274,14 @@ impl ChatRoomClient {
     /// Returns an error if the Steam API request fails.
     pub async fn get_my_chat_rooms(&self) -> Result<Vec<ChatRoomInfo>, Box<dyn Error>> {
         self.groups().get_my_chat_rooms().await
+    }
+
+    /// Get all chat groups the user belongs to, including every chat room in each group.
+    ///
+    /// Uses the `GetMyChatRoomGroups` response directly, which already includes
+    /// per-group chat room lists in `group_summary.chat_rooms`.
+    pub async fn get_my_chat_groups(&self) -> Result<Vec<ChatGroupInfo>, Box<dyn Error>> {
+        self.groups().get_my_chat_groups().await
     }
 
     /// Join a chat room group.
@@ -531,6 +550,56 @@ where
 }
 
 impl<'a> ChatRoomGroups<'a> {
+    fn chats_from_group_summary(
+        summary: &steam_vent_proto::steammessages_chat_steamclient::CChatRoom_GetChatRoomGroupSummary_Response,
+    ) -> Vec<ChatRoomInfo> {
+        let group_id = summary.chat_group_id();
+        let group_name = summary.chat_group_name().to_string();
+        let chats: Vec<ChatRoomInfo> = summary
+            .chat_rooms
+            .iter()
+            .map(|room| ChatRoomInfo {
+                chat_group_id: group_id,
+                chat_id: room.chat_id(),
+                chat_name: room.chat_name().to_string(),
+                chat_group_name: group_name.clone(),
+                is_joined: true,
+            })
+            .collect();
+
+        if chats.is_empty() {
+            vec![ChatRoomInfo {
+                chat_group_id: group_id,
+                chat_id: summary.default_chat_id(),
+                chat_name: group_name.clone(),
+                chat_group_name: group_name,
+                is_joined: true,
+            }]
+        } else {
+            chats
+        }
+    }
+
+    /// Get all chat groups the user belongs to, including every chat room in each group.
+    pub async fn get_my_chat_groups(&self) -> Result<Vec<ChatGroupInfo>, Box<dyn Error>> {
+        let req = CChatRoom_GetMyChatRoomGroups_Request::new();
+        let response: CChatRoom_GetMyChatRoomGroups_Response =
+            self.connection.service_method(req).await?;
+
+        let mut groups = Vec::new();
+        for pair in &response.chat_room_groups {
+            if let Some(summary) = pair.group_summary.as_ref() {
+                groups.push(ChatGroupInfo {
+                    chat_group_id: summary.chat_group_id(),
+                    chat_group_name: summary.chat_group_name().to_string(),
+                    chats: Self::chats_from_group_summary(summary),
+                });
+            }
+        }
+
+        Ok(groups)
+    }
+
     /// Get all chat room groups that the user is a member of.
     ///
     /// # Returns

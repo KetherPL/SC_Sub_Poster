@@ -1,5 +1,5 @@
-use std::error::Error;
 use SC_Sub_Poster::LogOn;
+use std::error::Error;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -14,11 +14,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Ok(client) => {
             println!("✓ Anonymous connection successful!");
             println!("  Steam ID: {}", client.steam_id().steam3());
-            
+
             // Test connection
             match client.test_connection().await {
                 Ok(_) => println!("✓ Connection test successful!"),
-                Err(e) => println!("⚠ Connection test failed (this is normal for anonymous): {:?}", e),
+                Err(e) => println!(
+                    "⚠ Connection test failed (this is normal for anonymous): {:?}",
+                    e
+                ),
             }
         }
         Err(e) => {
@@ -28,13 +31,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // Test authenticated login if credentials are provided
     println!("\n2. Testing authenticated login...");
-    
+
     // Get credentials from environment variables
     let account = std::env::var("STEAM_ACCOUNT").unwrap_or_else(|_| {
         println!("STEAM_ACCOUNT not set, skipping authenticated login");
         return String::new();
     });
-    
+
     let password = std::env::var("STEAM_PASSWORD").unwrap_or_else(|_| {
         println!("STEAM_PASSWORD not set, skipping authenticated login");
         return String::new();
@@ -45,7 +48,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             Ok(client) => {
                 println!("✓ Authenticated login successful!");
                 println!("  Steam ID: {}", client.steam_id().steam3());
-                
+
                 // Get owned games
                 println!("\n3. Fetching owned games...");
                 match client.get_owned_games().await {
@@ -74,7 +77,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     } else {
         println!("  Skipping authenticated login (no credentials provided)");
-        println!("  Set STEAM_ACCOUNT and STEAM_PASSWORD environment variables to test authenticated login");
+        println!(
+            "  Set STEAM_ACCOUNT and STEAM_PASSWORD environment variables to test authenticated login"
+        );
     }
 
     println!("\n=== Demo completed ===");
@@ -82,6 +87,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     println!("  export STEAM_ACCOUNT=your_username");
     println!("  export STEAM_PASSWORD=your_password");
     println!("  cargo run --example main_demo");
-    
+
     Ok(())
-} 
+}

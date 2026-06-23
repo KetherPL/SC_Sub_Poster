@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-only
 
-use SC_Sub_Poster::{chatroom::ChatRoomClient, LogOn};
+use SC_Sub_Poster::{LogOn, chatroom::ChatRoomClient};
 
 /// Smoke-test for anonymous connections.
 ///
@@ -31,4 +31,3 @@ async fn chat_room_listing_smoke() {
         .await
         .expect("listing chat rooms should succeed");
 }
-

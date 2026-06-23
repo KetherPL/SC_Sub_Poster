@@ -4,15 +4,15 @@
 #![warn(missing_docs)]
 
 //! High-level facade over the `steam-vent` primitives used by Kether.
-//! 
+//!
 //! All public constructors enforce the following invariants:
 //! - Successful logon yields a non-zero SteamID and session id.
 //! - Notification helpers surface recoverable errors instead of panicking.
 //! - Preprocessing utilities do not mutate the original message payload.
 
 // Re-export the main types for external use
-pub use logon::{GameInfo, LogonError, SessionSnapshot};
 use logon::KetherSteamClient;
+pub use logon::{GameInfo, LogonError, SessionSnapshot};
 
 /// Primary facade for establishing authenticated or anonymous sessions.
 ///
@@ -22,32 +22,32 @@ use logon::KetherSteamClient;
 pub type LogOn = KetherSteamClient;
 
 // Re-export chat room types
-pub use chatroom::{
-    ChatGroupInfo, ChatRoomClient, ChatRoomGroups, ChatRoomInfo, ChatRoomMessaging,
-    ChatRoomNotifications, FriendMessage, GroupChatMessage, EnhancedGroupChatMessage,
-    SendGroupMessageParams,
-};
 pub use chatroom::helpers as chat_helpers;
+pub use chatroom::{
+    ChatGroupInfo, ChatMessageHistoryEntry, ChatRoomClient, ChatRoomGroups, ChatRoomInfo,
+    ChatRoomMessaging, ChatRoomNotifications, EnhancedGroupChatMessage, FriendMessage,
+    GroupChatMessage, MessageReactionInfo, ReactionEvent, ReactionType, SendGroupMessageParams,
+};
 
 // Re-export preprocessing types
-pub use preprocessing::{
-    MessagePreprocessor, PreprocessedMessage, BBCodeNode, BBCodeContent, ChatMentions,
-    MentionSteamId,
-};
 pub use preprocessing::helpers as preprocessing_helpers;
+pub use preprocessing::{
+    BBCodeContent, BBCodeNode, ChatMentions, MentionSteamId, MessagePreprocessor,
+    PreprocessedMessage,
+};
 
-/// Steam authentication and connection management.
-pub mod logon;
 /// Steam chat room operations and messaging.
 pub mod chatroom;
-/// Message preprocessing utilities for BBCode and mentions.
-pub mod preprocessing;
 /// Error classification and retry guidance utilities.
 pub mod errors;
+/// Steam authentication and connection management.
+pub mod logon;
+/// Message preprocessing utilities for BBCode and mentions.
+pub mod preprocessing;
 
 pub use errors::{
-    classify_connection_error, classify_login_error, classify_network_error, ErrorDomain,
-    ErrorInventoryEntry, RetryDisposition,
+    ErrorDomain, ErrorInventoryEntry, RetryDisposition, classify_connection_error,
+    classify_login_error, classify_network_error,
 };
 
 #[cfg(test)]
@@ -61,15 +61,19 @@ mod tests {
     async fn test_anonymous_connection() {
         let client = KetherSteamClient::new_anonymous().await;
         assert!(client.is_ok(), "Anonymous connection should work");
-        
+
         let client = client.unwrap();
         // Test that we can get the Steam ID (this proves connection works)
         let steam_id = client.steam_id();
         println!("Anonymous Steam ID: {}", steam_id.steam3());
-        
+
         // Test connection with actual API call
         let result = client.test_connection().await;
-        assert!(result.is_ok(), "Connection test should succeed: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Connection test should succeed: {:?}",
+            result
+        );
     }
 
     #[tokio::test]
@@ -79,18 +83,18 @@ mod tests {
             println!("STEAM_ACCOUNT not set, using demo account");
             "anonymous".to_string()
         });
-        
+
         let password = env::var("STEAM_PASSWORD").unwrap_or_else(|_| {
             println!("STEAM_PASSWORD not set, using empty password");
             "".to_string()
         });
-        
+
         let client = KetherSteamClient::new(&account, &password).await;
         match client {
             Ok(client) => {
                 println!("Successfully logged in as User");
                 println!("Steam ID: {}", client.steam_id().steam3());
-                
+
                 // Test getting owned games
                 let games = client.get_owned_games().await;
                 match games {
@@ -112,4 +116,4 @@ mod tests {
             }
         }
     }
-} 
+}

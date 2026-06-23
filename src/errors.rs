@@ -114,11 +114,13 @@ pub fn classify_network_error(err: &NetworkError) -> ErrorInventoryEntry {
             "protocol mismatch",
         ),
         NetworkError::ApiError(result) => classify_api_error(*result),
-        NetworkError::CryptoHandshakeFailed | NetworkError::CryptoError(_) => ErrorInventoryEntry::new(
-            ErrorDomain::Transport,
-            RetryDisposition::BackoffRetry,
-            "crypto handshake failure",
-        ),
+        NetworkError::CryptoHandshakeFailed | NetworkError::CryptoError(_) => {
+            ErrorInventoryEntry::new(
+                ErrorDomain::Transport,
+                RetryDisposition::BackoffRetry,
+                "crypto handshake failure",
+            )
+        }
         NetworkError::MalformedBody(_) => ErrorInventoryEntry::new(
             ErrorDomain::Application,
             RetryDisposition::Fatal,
@@ -221,8 +223,7 @@ mod tests {
 
     #[test]
     fn timeout_is_retryable() {
-        let entry =
-            classify_network_error(&NetworkError::Timeout);
+        let entry = classify_network_error(&NetworkError::Timeout);
         assert_eq!(entry.disposition, RetryDisposition::ImmediateRetry);
     }
 
@@ -232,4 +233,3 @@ mod tests {
         assert_eq!(entry.disposition, RetryDisposition::Fatal);
     }
 }
-

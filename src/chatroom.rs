@@ -1,36 +1,33 @@
 // SPDX-License-Identifier: LGPL-3.0-only
 
-use std::error::Error;
+use crate::preprocessing::{MessagePreprocessor, PreprocessedMessage};
 use futures_util::StreamExt as FuturesStreamExt;
+use std::error::Error;
 use std::pin::Pin;
 use std::time::Duration;
+use steam_vent::ConnectionTrait;
 use steam_vent_proto::steammessages_chat_steamclient::{
-    CChatRoom_GetMyChatRoomGroups_Request,
-    CChatRoom_GetMyChatRoomGroups_Response,
-    CChatRoom_JoinChatRoomGroup_Request,
-    CChatRoom_JoinChatRoomGroup_Response,
-    CChatRoom_LeaveChatRoomGroup_Request,
-    CChatRoom_LeaveChatRoomGroup_Response,
-    CChatRoom_SendChatMessage_Request,
-    CChatRoom_SendChatMessage_Response,
-    CChatRoom_IncomingChatMessage_Notification,
-    CChatRoom_GetChatRoomGroupState_Request,
-    CChatRoom_GetChatRoomGroupState_Response,
-    CChatRoom_DeleteChatMessages_Request,
-    CChatRoom_DeleteChatMessages_Response,
-    cchat_room_delete_chat_messages_request,
+    CChatRoom_DeleteChatMessages_Request, CChatRoom_DeleteChatMessages_Response,
+    CChatRoom_GetChatRoomGroupState_Request, CChatRoom_GetChatRoomGroupState_Response,
+    CChatRoom_GetMessageHistory_Request, CChatRoom_GetMessageHistory_Response,
+    CChatRoom_GetMessageReactionReactors_Request, CChatRoom_GetMessageReactionReactors_Response,
+    CChatRoom_GetMyChatRoomGroups_Request, CChatRoom_GetMyChatRoomGroups_Response,
+    CChatRoom_IncomingChatMessage_Notification, CChatRoom_JoinChatRoomGroup_Request,
+    CChatRoom_JoinChatRoomGroup_Response, CChatRoom_LeaveChatRoomGroup_Request,
+    CChatRoom_LeaveChatRoomGroup_Response, CChatRoom_MessageReaction_Notification,
+    CChatRoom_SendChatMessage_Request, CChatRoom_SendChatMessage_Response,
+    CChatRoom_UpdateMessageReaction_Request, CChatRoom_UpdateMessageReaction_Response,
+    EChatRoomMessageReactionType, cchat_room_delete_chat_messages_request,
+    cchat_room_get_message_history_response,
 };
 use steam_vent_proto::steammessages_friendmessages_steamclient::{
-    CFriendMessages_SendMessage_Request,
+    CFriendMessages_IncomingMessage_Notification, CFriendMessages_SendMessage_Request,
     CFriendMessages_SendMessage_Response,
-    CFriendMessages_IncomingMessage_Notification,
 };
-use steam_vent::ConnectionTrait;
 use steamid_ng::SteamID;
 use thiserror::Error;
 use tokio::time::sleep;
 use tokio_stream::{Stream, StreamExt};
-use crate::preprocessing::{MessagePreprocessor, PreprocessedMessage};
 use tracing::{debug, instrument};
 
 type CallbackResult = Result<(), Box<dyn Error + Send + Sync>>;
@@ -116,22 +113,158 @@ pub struct EnhancedGroupChatMessage {
     pub preprocessed: PreprocessedMessage,
 }
 
+/// Supported reaction types for group chat message reactions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReactionType {
+    /// Steam emoticon reaction (e.g. `:steamhappy:`).
+    Emoticon,
+    /// Steam sticker reaction.
+    Sticker,
+}
+
+impl ReactionType {
+    fn into_proto(self) -> EChatRoomMessageReactionType {
+        match self {
+            Self::Emoticon => EChatRoomMessageReactionType::k_EChatRoomMessageReactionType_Emoticon,
+            Self::Sticker => EChatRoomMessageReactionType::k_EChatRoomMessageReactionType_Sticker,
+        }
+    }
+
+    fn from_proto(value: EChatRoomMessageReactionType) -> Option<Self> {
+        match value {
+            EChatRoomMessageReactionType::k_EChatRoomMessageReactionType_Emoticon => {
+                Some(Self::Emoticon)
+            }
+            EChatRoomMessageReactionType::k_EChatRoomMessageReactionType_Sticker => {
+                Some(Self::Sticker)
+            }
+            EChatRoomMessageReactionType::k_EChatRoomMessageReactionType_Invalid => None,
+        }
+    }
+}
+
+/// A single reaction summary attached to a message history entry.
+#[derive(Debug, Clone)]
+pub struct MessageReactionInfo {
+    /// Reaction category (emoticon or sticker).
+    pub reaction_type: ReactionType,
+    /// Raw reaction identifier (for emoticons this is usually `:name:`).
+    pub reaction: String,
+    /// Number of users who reacted with this reaction.
+    pub num_reactors: u32,
+    /// Whether the current user has reacted with this reaction.
+    pub has_user_reacted: bool,
+}
+
+/// A chat message returned by history APIs, including reaction data.
+#[derive(Debug, Clone)]
+pub struct ChatMessageHistoryEntry {
+    /// Message sender Steam ID.
+    pub sender: SteamID,
+    /// Server timestamp of the message.
+    pub server_timestamp: u32,
+    /// Message ordinal in channel history.
+    pub ordinal: u32,
+    /// Message text body.
+    pub message: String,
+    /// Whether this message is deleted.
+    pub deleted: bool,
+    /// Reactions currently associated with this message.
+    pub reactions: Vec<MessageReactionInfo>,
+}
+
+/// A real-time reaction notification event.
+#[derive(Debug, Clone)]
+pub struct ReactionEvent {
+    /// Chat group identifier.
+    pub chat_group_id: u64,
+    /// Chat room identifier.
+    pub chat_id: u64,
+    /// Message server timestamp.
+    pub server_timestamp: u32,
+    /// Message ordinal.
+    pub ordinal: u32,
+    /// Steam ID of the user who reacted.
+    pub reactor: SteamID,
+    /// Type of reaction.
+    pub reaction_type: ReactionType,
+    /// Raw reaction identifier.
+    pub reaction: String,
+    /// `true` for add, `false` for remove.
+    pub is_add: bool,
+}
+
 impl EnhancedGroupChatMessage {
     /// Create an enhanced message from a notification, preserving the whole notification object
-    pub fn from_notification(
-        notification: &CChatRoom_IncomingChatMessage_Notification,
-    ) -> Self {
+    pub fn from_notification(notification: &CChatRoom_IncomingChatMessage_Notification) -> Self {
         let preprocessed = MessagePreprocessor::preprocess_message(notification.message());
         Self {
             chat_group_id: notification.chat_group_id(),
             chat_id: notification.chat_id(),
-            sender_steam_id: SteamID::from(notification.steamid_sender() as u64),
+            sender_steam_id: SteamID::from(notification.steamid_sender()),
             message: notification.message().to_string(),
             timestamp: notification.timestamp(),
             chat_name: notification.chat_name().to_string(),
             ordinal: notification.ordinal(),
             preprocessed,
         }
+    }
+}
+
+impl MessageReactionInfo {
+    fn from_proto(
+        reaction: &cchat_room_get_message_history_response::chat_message::MessageReaction,
+    ) -> Option<Self> {
+        let reaction_type = ReactionType::from_proto(reaction.reaction_type())?;
+        Some(Self {
+            reaction_type,
+            reaction: reaction.reaction().to_string(),
+            num_reactors: reaction.num_reactors(),
+            has_user_reacted: reaction.has_user_reacted(),
+        })
+    }
+}
+
+impl ChatMessageHistoryEntry {
+    fn from_proto(message: &cchat_room_get_message_history_response::ChatMessage) -> Self {
+        let mut reactions = Vec::new();
+        for reaction in &message.reactions {
+            match MessageReactionInfo::from_proto(reaction) {
+                Some(reaction_info) => reactions.push(reaction_info),
+                None => {
+                    tracing::warn!(
+                        reaction_type = ?reaction.reaction_type(),
+                        reaction = reaction.reaction(),
+                        "Skipping unsupported reaction type from history entry"
+                    );
+                }
+            }
+        }
+
+        Self {
+            sender: SteamID::from(message.sender() as u64),
+            server_timestamp: message.server_timestamp(),
+            ordinal: message.ordinal(),
+            message: message.message().to_string(),
+            deleted: message.deleted(),
+            reactions,
+        }
+    }
+}
+
+impl ReactionEvent {
+    fn from_notification(notification: &CChatRoom_MessageReaction_Notification) -> Option<Self> {
+        let reaction_type = ReactionType::from_proto(notification.reaction_type())?;
+        Some(Self {
+            chat_group_id: notification.chat_group_id(),
+            chat_id: notification.chat_id(),
+            server_timestamp: notification.server_timestamp(),
+            ordinal: notification.ordinal(),
+            reactor: SteamID::from(notification.reactor()),
+            reaction_type,
+            reaction: notification.reaction().to_string(),
+            is_add: notification.is_add(),
+        })
     }
 }
 
@@ -450,6 +583,132 @@ impl ChatRoomClient {
             .await
     }
 
+    /// Add a reaction to a group chat message.
+    ///
+    /// # Arguments
+    ///
+    /// * `chat_group_id` - The unique identifier for the chat group
+    /// * `chat_id` - The unique identifier for the specific chat room
+    /// * `server_timestamp` - The message server timestamp
+    /// * `ordinal` - The message ordinal (can be 0)
+    /// * `reaction_type` - Reaction category (emoticon or sticker)
+    /// * `reaction` - Reaction value (e.g. `:steamhappy:` for emoticons)
+    ///
+    /// # Returns
+    ///
+    /// The updated number of reactors for this reaction.
+    #[instrument(
+        name = "kether.chat.add_message_reaction",
+        skip(self, reaction),
+        fields(chat_group_id, chat_id, server_timestamp, ordinal, reaction_type = ?reaction_type)
+    )]
+    pub async fn add_message_reaction(
+        &self,
+        chat_group_id: u64,
+        chat_id: u64,
+        server_timestamp: u32,
+        ordinal: u32,
+        reaction_type: ReactionType,
+        reaction: &str,
+    ) -> Result<u32, Box<dyn Error>> {
+        self.messaging()
+            .add_message_reaction(
+                chat_group_id,
+                chat_id,
+                server_timestamp,
+                ordinal,
+                reaction_type,
+                reaction,
+            )
+            .await
+    }
+
+    /// Remove a reaction from a group chat message.
+    ///
+    /// # Returns
+    ///
+    /// The updated number of reactors for this reaction after removal.
+    #[instrument(
+        name = "kether.chat.remove_message_reaction",
+        skip(self, reaction),
+        fields(chat_group_id, chat_id, server_timestamp, ordinal, reaction_type = ?reaction_type)
+    )]
+    pub async fn remove_message_reaction(
+        &self,
+        chat_group_id: u64,
+        chat_id: u64,
+        server_timestamp: u32,
+        ordinal: u32,
+        reaction_type: ReactionType,
+        reaction: &str,
+    ) -> Result<u32, Box<dyn Error>> {
+        self.messaging()
+            .remove_message_reaction(
+                chat_group_id,
+                chat_id,
+                server_timestamp,
+                ordinal,
+                reaction_type,
+                reaction,
+            )
+            .await
+    }
+
+    /// List users who reacted with a specific reaction on a message.
+    ///
+    /// # Arguments
+    ///
+    /// * `limit` - Optional max number of reactors to return
+    ///
+    /// # Returns
+    ///
+    /// A list of reactor Steam IDs.
+    #[instrument(
+        name = "kether.chat.get_message_reaction_reactors",
+        skip(self, reaction),
+        fields(chat_group_id, chat_id, server_timestamp, ordinal, reaction_type = ?reaction_type, limit = ?limit)
+    )]
+    #[allow(clippy::too_many_arguments)]
+    pub async fn get_message_reaction_reactors(
+        &self,
+        chat_group_id: u64,
+        chat_id: u64,
+        server_timestamp: u32,
+        ordinal: u32,
+        reaction_type: ReactionType,
+        reaction: &str,
+        limit: Option<u32>,
+    ) -> Result<Vec<SteamID>, Box<dyn Error>> {
+        self.messaging()
+            .get_message_reaction_reactors(
+                chat_group_id,
+                chat_id,
+                server_timestamp,
+                ordinal,
+                reaction_type,
+                reaction,
+                limit,
+            )
+            .await
+    }
+
+    /// Get message history for a chat room, including per-message reaction summaries.
+    #[instrument(
+        name = "kether.chat.get_message_history",
+        skip(self),
+        fields(chat_group_id, chat_id, max_count = ?max_count)
+    )]
+    pub async fn get_message_history(
+        &self,
+        chat_group_id: u64,
+        chat_id: u64,
+        max_count: Option<u32>,
+    ) -> Result<Vec<ChatMessageHistoryEntry>, Box<dyn Error>> {
+        self.messaging()
+            .get_message_history(chat_group_id, chat_id, max_count)
+            .await
+    }
+
     /// Get the current state of a chat room group.
     ///
     /// # Arguments
@@ -463,7 +722,10 @@ impl ChatRoomClient {
     /// # Errors
     ///
     /// Returns an error if the state request fails.
-    pub async fn get_chat_room_state(&self, chat_group_id: u64) -> Result<CChatRoom_GetChatRoomGroupState_Response, Box<dyn Error>> {
+    pub async fn get_chat_room_state(
+        &self,
+        chat_group_id: u64,
+    ) -> Result<CChatRoom_GetChatRoomGroupState_Response, Box<dyn Error>> {
         self.groups().get_chat_room_state(chat_group_id).await
     }
 
@@ -482,7 +744,25 @@ impl ChatRoomClient {
     where
         F: FnMut(EnhancedGroupChatMessage) + Send + 'static,
     {
-        self.notifications().listen_for_group_messages(callback).await
+        self.notifications()
+            .listen_for_group_messages(callback)
+            .await
+    }
+
+    /// Listen for incoming message reaction events.
+    ///
+    /// # Arguments
+    ///
+    /// * `callback` - A closure that will be called for each reaction event
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the notification stream fails or the callback panics.
+    pub async fn listen_for_reactions<F>(&self, callback: F) -> Result<(), Box<dyn Error>>
+    where
+        F: FnMut(ReactionEvent) + Send + 'static,
+    {
+        self.notifications().listen_for_reactions(callback).await
     }
 
     /// Listen for incoming friend messages.
@@ -498,7 +778,9 @@ impl ChatRoomClient {
     where
         F: FnMut(FriendMessage) + Send + 'static,
     {
-        self.notifications().listen_for_friend_messages(callback).await
+        self.notifications()
+            .listen_for_friend_messages(callback)
+            .await
     }
 
     /// Get the underlying Steam connection for advanced operations.
@@ -537,7 +819,8 @@ where
     {
         while let Some(result) = StreamExt::next(&mut self.inner).await {
             match result {
-                Ok(item) => handler(item).map_err(|source| NotificationDispatchError::Callback { source })?,
+                Ok(item) => handler(item)
+                    .map_err(|source| NotificationDispatchError::Callback { source })?,
                 Err(err) => {
                     sleep(self.backoff).await;
                     return Err(NotificationDispatchError::Stream(err));
@@ -750,7 +1033,9 @@ impl<'a> ChatRoomMessaging<'a> {
         Ok(final_preprocessed)
     }
 
-    fn build_send_message_request(params: &SendGroupMessageParams) -> CChatRoom_SendChatMessage_Request {
+    fn build_send_message_request(
+        params: &SendGroupMessageParams,
+    ) -> CChatRoom_SendChatMessage_Request {
         let prepared_message = MessagePreprocessor::prepare_message_for_sending(&params.message);
         let mut req = CChatRoom_SendChatMessage_Request::new();
         req.set_chat_group_id(params.chat_group_id);
@@ -774,7 +1059,7 @@ impl<'a> ChatRoomMessaging<'a> {
             // Not set in response - will be available in notification if echo_to_sender is true
             0
         };
-        
+
         MessagePreprocessor::process_response(
             &params.message,
             response.modified_message(),
@@ -852,6 +1137,210 @@ impl<'a> ChatRoomMessaging<'a> {
         Ok(response)
     }
 
+    fn ensure_valid_message_identifier(
+        server_timestamp: u32,
+        ordinal: u32,
+    ) -> Result<(), Box<dyn Error>> {
+        if server_timestamp == 0 {
+            return Err(format!(
+                "Invalid message identifier for reaction: server_timestamp={} (must be non-zero). Ordinal={} is allowed to be 0.",
+                server_timestamp, ordinal
+            ).into());
+        }
+        Ok(())
+    }
+
+    fn build_update_message_reaction_request(
+        chat_group_id: u64,
+        chat_id: u64,
+        server_timestamp: u32,
+        ordinal: u32,
+        reaction_type: ReactionType,
+        reaction: &str,
+        is_add: bool,
+    ) -> Result<CChatRoom_UpdateMessageReaction_Request, Box<dyn Error>> {
+        Self::ensure_valid_message_identifier(server_timestamp, ordinal)?;
+
+        let mut req = CChatRoom_UpdateMessageReaction_Request::new();
+        req.set_chat_group_id(chat_group_id);
+        req.set_chat_id(chat_id);
+        req.set_server_timestamp(server_timestamp);
+        req.set_ordinal(ordinal);
+        req.set_reaction_type(reaction_type.into_proto());
+        req.set_reaction(reaction.to_string());
+        req.set_is_add(is_add);
+        Ok(req)
+    }
+
+    /// Add a reaction to a group chat message.
+    #[instrument(
+        name = "kether.chat.add_message_reaction",
+        skip(self, reaction),
+        fields(chat_group_id, chat_id, server_timestamp, ordinal, reaction_type = ?reaction_type)
+    )]
+    pub async fn add_message_reaction(
+        &self,
+        chat_group_id: u64,
+        chat_id: u64,
+        server_timestamp: u32,
+        ordinal: u32,
+        reaction_type: ReactionType,
+        reaction: &str,
+    ) -> Result<u32, Box<dyn Error>> {
+        let req = Self::build_update_message_reaction_request(
+            chat_group_id,
+            chat_id,
+            server_timestamp,
+            ordinal,
+            reaction_type,
+            reaction,
+            true,
+        )?;
+        let response: CChatRoom_UpdateMessageReaction_Response =
+            self.connection.service_method(req).await?;
+
+        debug!(
+            chat_group_id,
+            chat_id,
+            server_timestamp,
+            ordinal,
+            reaction_type = ?reaction_type,
+            num_reactors = response.num_reactors(),
+            "message reaction added"
+        );
+
+        Ok(response.num_reactors())
+    }
+
+    /// Remove a reaction from a group chat message.
+    #[instrument(
+        name = "kether.chat.remove_message_reaction",
+        skip(self, reaction),
+        fields(chat_group_id, chat_id, server_timestamp, ordinal, reaction_type = ?reaction_type)
+    )]
+    pub async fn remove_message_reaction(
+        &self,
+        chat_group_id: u64,
+        chat_id: u64,
+        server_timestamp: u32,
+        ordinal: u32,
+        reaction_type: ReactionType,
+        reaction: &str,
+    ) -> Result<u32, Box<dyn Error>> {
+        let req = Self::build_update_message_reaction_request(
+            chat_group_id,
+            chat_id,
+            server_timestamp,
+            ordinal,
+            reaction_type,
+            reaction,
+            false,
+        )?;
+        let response: CChatRoom_UpdateMessageReaction_Response =
+            self.connection.service_method(req).await?;
+
+        debug!(
+            chat_group_id,
+            chat_id,
+            server_timestamp,
+            ordinal,
+            reaction_type = ?reaction_type,
+            num_reactors = response.num_reactors(),
+            "message reaction removed"
+        );
+
+        Ok(response.num_reactors())
+    }
+
+    /// List users who reacted with a specific reaction on a message.
+    #[instrument(
+        name = "kether.chat.get_message_reaction_reactors",
+        skip(self, reaction),
+        fields(chat_group_id, chat_id, server_timestamp, ordinal, reaction_type = ?reaction_type, limit = ?limit)
+    )]
+    #[allow(clippy::too_many_arguments)]
+    pub async fn get_message_reaction_reactors(
+        &self,
+        chat_group_id: u64,
+        chat_id: u64,
+        server_timestamp: u32,
+        ordinal: u32,
+        reaction_type: ReactionType,
+        reaction: &str,
+        limit: Option<u32>,
+    ) -> Result<Vec<SteamID>, Box<dyn Error>> {
+        Self::ensure_valid_message_identifier(server_timestamp, ordinal)?;
+
+        let mut req = CChatRoom_GetMessageReactionReactors_Request::new();
+        req.set_chat_group_id(chat_group_id);
+        req.set_chat_id(chat_id);
+        req.set_server_timestamp(server_timestamp);
+        req.set_ordinal(ordinal);
+        req.set_reaction_type(reaction_type.into_proto());
+        req.set_reaction(reaction.to_string());
+        if let Some(limit) = limit {
+            req.set_limit(limit);
+        }
+
+        let response: CChatRoom_GetMessageReactionReactors_Response =
+            self.connection.service_method(req).await?;
+        let reactors: Vec<SteamID> = response
+            .reactors
+            .iter()
+            .map(|account_id| SteamID::from(*account_id as u64))
+            .collect();
+
+        debug!(
+            chat_group_id,
+            chat_id,
+            server_timestamp,
+            ordinal,
+            reaction_type = ?reaction_type,
+            reactor_count = reactors.len(),
+            "message reaction reactors fetched"
+        );
+
+        Ok(reactors)
+    }
+
+    /// Fetch message history for a chat room, including aggregated reaction summaries.
+    #[instrument(
+        name = "kether.chat.get_message_history",
+        skip(self),
+        fields(chat_group_id, chat_id, max_count = ?max_count)
+    )]
+    pub async fn get_message_history(
+        &self,
+        chat_group_id: u64,
+        chat_id: u64,
+        max_count: Option<u32>,
+    ) -> Result<Vec<ChatMessageHistoryEntry>, Box<dyn Error>> {
+        let mut req = CChatRoom_GetMessageHistory_Request::new();
+        req.set_chat_group_id(chat_group_id);
+        req.set_chat_id(chat_id);
+        if let Some(max_count) = max_count {
+            req.set_max_count(max_count);
+        }
+
+        let response: CChatRoom_GetMessageHistory_Response =
+            self.connection.service_method(req).await?;
+        let history_entries: Vec<ChatMessageHistoryEntry> = response
+            .messages
+            .iter()
+            .map(ChatMessageHistoryEntry::from_proto)
+            .collect();
+
+        debug!(
+            chat_group_id,
+            chat_id,
+            message_count = history_entries.len(),
+            more_available = response.more_available(),
+            "chat message history fetched"
+        );
+
+        Ok(history_entries)
+    }
+
     /// Delete one or more group chat messages.
     ///
     /// Messages are identified by their `server_timestamp` and `ordinal` values,
@@ -901,7 +1390,7 @@ impl<'a> ChatRoomMessaging<'a> {
         }
 
         let message_count = messages.len();
-        
+
         // Log what we're trying to delete for debugging
         let timestamps: Vec<u32> = messages.iter().map(|(ts, _)| *ts).collect();
         let ordinals: Vec<u32> = messages.iter().map(|(_, ord)| *ord).collect();
@@ -913,7 +1402,7 @@ impl<'a> ChatRoomMessaging<'a> {
             ?ordinals,
             "Attempting to delete messages"
         );
-        
+
         let mut req = CChatRoom_DeleteChatMessages_Request::new();
         req.set_chat_group_id(chat_group_id);
         req.set_chat_id(chat_id);
@@ -934,11 +1423,11 @@ impl<'a> ChatRoomMessaging<'a> {
                 ).into());
             }
             // Ordinal can be 0 (it can be omitted in deletion requests per DrMcKay's wiki)
-            
+
             let mut msg = cchat_room_delete_chat_messages_request::Message::new();
             msg.set_server_timestamp(server_timestamp);
             msg.set_ordinal(ordinal);
-            
+
             // Verify both fields are actually set in the protobuf message
             if !msg.has_server_timestamp() || !msg.has_ordinal() {
                 tracing::error!(
@@ -949,9 +1438,10 @@ impl<'a> ChatRoomMessaging<'a> {
                 return Err(format!(
                     "Failed to set message fields in protobuf: server_timestamp={}, ordinal={}",
                     server_timestamp, ordinal
-                ).into());
+                )
+                .into());
             }
-            
+
             req.messages.push(msg);
         }
 
@@ -960,9 +1450,7 @@ impl<'a> ChatRoomMessaging<'a> {
 
         debug!(
             chat_group_id,
-            chat_id,
-            message_count,
-            "group messages deleted"
+            chat_id, message_count, "group messages deleted"
         );
 
         Ok(response)
@@ -1039,9 +1527,7 @@ impl<'a> ChatRoomMessaging<'a> {
                 }
                 _ => {
                     skipped_count += 1;
-                    tracing::warn!(
-                        "Skipping message deletion: missing server_timestamp"
-                    );
+                    tracing::warn!("Skipping message deletion: missing server_timestamp");
                 }
             }
         }
@@ -1117,7 +1603,50 @@ impl<'a> ChatRoomNotifications<'a> {
         self.listen_for_group_messages_with(move |message| {
             callback(message);
             Ok(())
-            })
+        })
+        .await
+    }
+
+    /// Listen for incoming reaction events with error handling.
+    ///
+    /// The callback can return an error to stop the listener, or `Ok(())` to continue.
+    pub async fn listen_for_reactions_with<F>(&self, callback: F) -> Result<(), Box<dyn Error>>
+    where
+        F: FnMut(ReactionEvent) -> CallbackResult + Send + 'static,
+    {
+        let mut user_callback = callback;
+        self.reaction_stream()
+            .for_each(
+                move |notification| match ReactionEvent::from_notification(&notification) {
+                    Some(event) => user_callback(event),
+                    None => {
+                        tracing::warn!(
+                            chat_group_id = notification.chat_group_id(),
+                            chat_id = notification.chat_id(),
+                            server_timestamp = notification.server_timestamp(),
+                            ordinal = notification.ordinal(),
+                            reaction_type = ?notification.reaction_type(),
+                            "Skipping unsupported reaction notification type"
+                        );
+                        Ok(())
+                    }
+                },
+            )
+            .await
+            .map_err(|err| -> Box<dyn Error> { Box::new(err) })
+    }
+
+    /// Listen for incoming reaction events.
+    ///
+    /// This is a convenience wrapper that ignores callback errors.
+    pub async fn listen_for_reactions<F>(&self, mut callback: F) -> Result<(), Box<dyn Error>>
+    where
+        F: FnMut(ReactionEvent) + Send + 'static,
+    {
+        self.listen_for_reactions_with(move |event| {
+            callback(event);
+            Ok(())
+        })
         .await
     }
 
@@ -1132,7 +1661,10 @@ impl<'a> ChatRoomNotifications<'a> {
     /// # Errors
     ///
     /// Returns an error if the notification stream fails or the callback returns an error.
-    pub async fn listen_for_friend_messages_with<F>(&self, callback: F) -> Result<(), Box<dyn Error>>
+    pub async fn listen_for_friend_messages_with<F>(
+        &self,
+        callback: F,
+    ) -> Result<(), Box<dyn Error>>
     where
         F: FnMut(FriendMessage) -> CallbackResult + Send + 'static,
     {
@@ -1173,9 +1705,7 @@ impl<'a> ChatRoomNotifications<'a> {
         .await
     }
 
-    fn group_stream(
-        &self,
-    ) -> NotificationStream<'_, CChatRoom_IncomingChatMessage_Notification> {
+    fn group_stream(&self) -> NotificationStream<'_, CChatRoom_IncomingChatMessage_Notification> {
         let stream = self
             .connection
             .on_notification::<CChatRoom_IncomingChatMessage_Notification>()
@@ -1189,6 +1719,14 @@ impl<'a> ChatRoomNotifications<'a> {
         let stream = self
             .connection
             .on_notification::<CFriendMessages_IncomingMessage_Notification>()
+            .throttle(Duration::from_millis(25));
+        NotificationStream::new(stream, Duration::from_millis(250))
+    }
+
+    fn reaction_stream(&self) -> NotificationStream<'_, CChatRoom_MessageReaction_Notification> {
+        let stream = self
+            .connection
+            .on_notification::<CChatRoom_MessageReaction_Notification>()
             .throttle(Duration::from_millis(25));
         NotificationStream::new(stream, Duration::from_millis(250))
     }
@@ -1242,7 +1780,10 @@ mod tests {
     #[ignore = "Requires Steam network access"]
     async fn test_chat_client_creation() {
         // Try to get credentials from environment variables
-        let logon = match (std::env::var("STEAM_ACCOUNT"), std::env::var("STEAM_PASSWORD")) {
+        let logon = match (
+            std::env::var("STEAM_ACCOUNT"),
+            std::env::var("STEAM_PASSWORD"),
+        ) {
             (Ok(account), Ok(password)) => {
                 println!("Using credentials from environment variables");
                 LogOn::new(&account, &password).await
@@ -1251,20 +1792,29 @@ mod tests {
                 println!("No credentials provided, using anonymous connection");
                 LogOn::new_anonymous().await
             }
-        }.unwrap();
-        
+        }
+        .unwrap();
+
         let chat_client = ChatRoomClient::new(logon.connection().clone());
-        
+
         // Test getting chat rooms (should work even if empty)
         let chat_rooms = chat_client.get_my_chat_rooms().await;
         assert!(chat_rooms.is_ok(), "Should be able to get chat rooms");
-        
+
         let rooms = chat_rooms.unwrap();
         println!("Found {} chat rooms:", rooms.len());
-        
+
         for (i, room) in rooms.iter().enumerate() {
-            println!("  {}. {} (Group: {})", i + 1, room.chat_name, room.chat_group_name);
-            println!("     Group ID: {}, Chat ID: {}", room.chat_group_id, room.chat_id);
+            println!(
+                "  {}. {} (Group: {})",
+                i + 1,
+                room.chat_name,
+                room.chat_group_name
+            );
+            println!(
+                "     Group ID: {}, Chat ID: {}",
+                room.chat_group_id, room.chat_id
+            );
         }
     }
 
@@ -1273,7 +1823,7 @@ mod tests {
         let steam_id_str = "[U:1:1531059355]";
         let steam_id = helpers::parse_steam_id(steam_id_str);
         assert!(steam_id.is_ok(), "Should parse valid Steam ID");
-        
+
         let formatted = helpers::format_steam_id(steam_id.unwrap());
         assert_eq!(formatted, steam_id_str);
     }
@@ -1284,4 +1834,4 @@ mod tests {
         let message = helpers::create_message_with_mentions("Hello", &[steam_id]);
         assert!(message.contains("@"));
     }
-} 
+}

@@ -1,16 +1,18 @@
 // SPDX-License-Identifier: LGPL-3.0-only
 
+use crate::errors::{
+    ErrorDomain, ErrorInventoryEntry, RetryDisposition, classify_connection_error,
+};
 use std::error::Error;
 use std::net::IpAddr;
-use crate::errors::{classify_connection_error, ErrorDomain, ErrorInventoryEntry, RetryDisposition};
-use thiserror::Error;
-use tracing::{info, instrument};
 use steam_vent::auth::{
     AuthConfirmationHandler, ConsoleAuthConfirmationHandler, DeviceConfirmationHandler,
     FileGuardDataStore,
 };
 use steam_vent::{Connection, ConnectionTrait, ServerList};
 use steamid_ng3::SteamID;
+use thiserror::Error;
+use tracing::{info, instrument};
 
 /// Steam client wrapper for authenticated and anonymous operations
 pub struct KetherSteamClient {
@@ -53,9 +55,10 @@ impl KetherSteamClient {
     }
 
     /// Common validation and finalization logic for connections
-    fn validate_and_finalize_connection(connection: Connection) -> Result<Connection, Box<dyn Error>> {
-        ensure_valid_connection(&connection)
-            .map_err(|err| -> Box<dyn Error> { Box::new(err) })?;
+    fn validate_and_finalize_connection(
+        connection: Connection,
+    ) -> Result<Connection, Box<dyn Error>> {
+        ensure_valid_connection(&connection).map_err(|err| -> Box<dyn Error> { Box::new(err) })?;
         Ok(connection)
     }
 
@@ -83,10 +86,10 @@ impl KetherSteamClient {
     #[instrument(name = "kether.logon.test_connection", skip(self))]
     pub async fn test_connection(&self) -> Result<(), Box<dyn Error>> {
         use steam_vent_proto::steammessages_clientserver_appinfo::{
-            cmsg_client_picsproduct_info_request, CMsgClientPICSProductInfoRequest,
-            CMsgClientPICSProductInfoResponse,
+            CMsgClientPICSProductInfoRequest, CMsgClientPICSProductInfoResponse,
+            cmsg_client_picsproduct_info_request,
         };
-        
+
         // Request basic app info for TF2 (appid 440) - lightweight test that works for both authenticated and anonymous
         let req = CMsgClientPICSProductInfoRequest {
             apps: vec![cmsg_client_picsproduct_info_request::AppInfo {
@@ -98,7 +101,7 @@ impl KetherSteamClient {
             single_response: Some(true),
             ..Default::default()
         };
-        
+
         let _response: CMsgClientPICSProductInfoResponse = self.connection.job(req).await?;
         info!("connection round-trip succeeded");
         Ok(())
@@ -116,7 +119,7 @@ impl KetherSteamClient {
         };
 
         let games = self.connection.service_method(req).await?;
-        
+
         let game_info: Vec<GameInfo> = games
             .games
             .into_iter()
@@ -167,9 +170,7 @@ mod bootstrap {
         #[ignore = "Requires Steam network access"]
         async fn discover_and_login_anonymous() {
             let servers = discover_servers().await.expect("discover servers");
-            let connection = anonymous_login(&servers)
-                .await
-                .expect("anonymous login");
+            let connection = anonymous_login(&servers).await.expect("anonymous login");
             assert_ne!(connection.steam_id().account_id(), 0);
 
             let snapshot = SessionSnapshot::from_connection(&connection);
@@ -332,9 +333,7 @@ impl std::fmt::Display for GameInfo {
         write!(
             f,
             "{} (AppID: {}) - {} minutes played",
-            self.name,
-            self.app_id,
-            self.playtime_forever
+            self.name, self.app_id, self.playtime_forever
         )
     }
-} 
+}

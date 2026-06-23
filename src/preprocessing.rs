@@ -1,13 +1,26 @@
 // SPDX-License-Identifier: LGPL-3.0-only
 
-use std::collections::HashMap;
-use tracing::trace;
-use steamid_ng::SteamID;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use steamid_ng::SteamID;
+use tracing::trace;
 
 const ALLOWED_BBCODE_TAGS: &[&str] = &[
-    "emoticon", "code", "pre", "img", "url", "spoiler", "quote", "random", "flip",
-    "tradeofferlink", "tradeoffer", "sticker", "gameinvite", "og", "roomeffect",
+    "emoticon",
+    "code",
+    "pre",
+    "img",
+    "url",
+    "spoiler",
+    "quote",
+    "random",
+    "flip",
+    "tradeofferlink",
+    "tradeoffer",
+    "sticker",
+    "gameinvite",
+    "og",
+    "roomeffect",
 ];
 
 // BBCode formatting type constants
@@ -148,7 +161,7 @@ impl MessagePreprocessor {
         trace!(original_len = message.len(), "starting preprocessing");
         let message_bbcode_parsed = Self::parse_bbcode(message);
         let mentions = Self::extract_mentions(message);
-        
+
         PreprocessedMessage {
             original_message: message.to_string(),
             modified_message: message.to_string(),
@@ -186,7 +199,7 @@ impl MessagePreprocessor {
     /// Process a single token to detect mentions
     fn process_mention_token(token: &str, mentions: &mut ChatMentions) {
         let cleaned_token = token.trim_matches(|c: char| MENTION_PUNCTUATION.contains(c));
-        
+
         if cleaned_token == MENTION_ALL {
             mentions.mention_all = true;
             return;
@@ -200,7 +213,9 @@ impl MessagePreprocessor {
         if Self::is_steam_id_format(cleaned_token)
             && let Ok(steam_id) = SteamID::try_from(cleaned_token)
         {
-            mentions.mention_steamids.push(MentionSteamId::from(steam_id));
+            mentions
+                .mention_steamids
+                .push(MentionSteamId::from(steam_id));
         }
     }
 
@@ -432,9 +447,8 @@ mod bbcode {
 
                         if let Some(node) = self.parse_tag(tag_content) {
                             if !current_text.is_empty() {
-                                parsed.push(BBCodeContent::String(std::mem::take(
-                                    &mut current_text,
-                                )));
+                                parsed
+                                    .push(BBCodeContent::String(std::mem::take(&mut current_text)));
                             }
                             parsed.push(BBCodeContent::Node(node));
                         } else {
@@ -492,8 +506,11 @@ mod bbcode {
         fn extract_tag_attributes(parts: &[&str]) -> HashMap<String, String> {
             let mut attrs = HashMap::new();
 
-            let value = parts.get(1).map(|s| s.trim()).filter(|value| !value.is_empty());
-            
+            let value = parts
+                .get(1)
+                .map(|s| s.trim())
+                .filter(|value| !value.is_empty());
+
             if let Some(value) = value {
                 attrs.insert("value".to_string(), value.to_string());
             }
@@ -501,7 +518,6 @@ mod bbcode {
             attrs
         }
     }
-
 }
 
 #[cfg(test)]
@@ -513,7 +529,7 @@ mod tests {
     fn test_bbcode_parsing() {
         let message = "Hello [b]world[/b] and [i]italic[/i] text";
         let parsed = MessagePreprocessor::parse_bbcode(message);
-        
+
         assert!(!parsed.is_empty());
         // Basic test - in practice you'd want more detailed assertions
     }
@@ -522,7 +538,7 @@ mod tests {
     fn test_mention_extraction() {
         let message = "Hello @all and @here users!";
         let mentions = MessagePreprocessor::extract_mentions(message);
-        
+
         assert!(mentions.is_some());
         let mentions = mentions.unwrap();
         assert!(mentions.mention_all);
@@ -533,7 +549,7 @@ mod tests {
     fn test_message_preprocessing() {
         let message = "Hello @all with [b]bold[/b] text";
         let preprocessed = MessagePreprocessor::preprocess_message(message);
-        
+
         assert_eq!(preprocessed.original_message, message);
         assert!(preprocessed.mentions.is_some());
         assert!(!preprocessed.message_bbcode_parsed.is_empty());
@@ -592,8 +608,7 @@ mod tests {
         };
 
         let json = serde_json::to_string(&mentions).expect("serialize mentions");
-        let decoded: ChatMentions =
-            serde_json::from_str(&json).expect("deserialize mentions");
+        let decoded: ChatMentions = serde_json::from_str(&json).expect("deserialize mentions");
 
         assert_eq!(decoded.mention_steamids.len(), 1);
         assert_eq!(SteamID::from(decoded.mention_steamids[0]), steam_id);
@@ -667,4 +682,4 @@ mod tests {
             }
         }
     }
-} 
+}

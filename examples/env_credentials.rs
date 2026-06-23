@@ -1,6 +1,6 @@
-use std::error::Error;
-use std::env;
 use SC_Sub_Poster::LogOn;
+use std::env;
+use std::error::Error;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -14,19 +14,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
         println!("STEAM_ACCOUNT not set, using demo account");
         "anonymous".to_string()
     });
-    
+
     let password = env::var("STEAM_PASSWORD").unwrap_or_else(|_| {
         println!("STEAM_PASSWORD not set, using empty password");
         "".to_string()
     });
 
     println!("Attempting login with account: {}", account);
-    
+
     match LogOn::new(&account, &password).await {
         Ok(client) => {
             println!("✓ Login successful!");
             println!("Steam ID: {}", client.steam_id().steam3());
-            
+
             // Get owned games
             match client.get_owned_games().await {
                 Ok(games) => {
@@ -46,4 +46,4 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
 
     Ok(())
-} 
+}

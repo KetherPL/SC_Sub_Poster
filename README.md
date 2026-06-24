@@ -67,7 +67,10 @@ export CHAT_ID="your_chat_id"         # Optional
 - **Mention Support**: Handle `@all`, `@here`, and `[U:1:xxxxx]` SteamID mentions with serde-safe wrappers
 - **Real-time Listening**: Listen for incoming friend and group messages with error-aware callbacks
 - **Enhanced Messages**: Get detailed information about processed messages, including immutable session snapshots
-- **Tracing Spans**: Built-in `tracing` instrumentation for logon, chat dispatch and preprocessing
+- **Message Deletion**: Delete group chat messages by `(server_timestamp, ordinal)` or directly from `PreprocessedMessage` send responses
+- **Message Reactions**: Add and remove emoticon or sticker reactions, list reactors, fetch reaction summaries from message history, and listen for real-time reaction events
+- **Chat Groups**: List chat groups and their rooms via `get_my_chat_groups`, returning structured `ChatGroupInfo` with nested `ChatRoomInfo`
+- **Tracing Spans**: Built-in `tracing` instrumentation for logon, chat dispatch, preprocessing, deletion, and reactions
 
 For more advanced usage, see the `examples/chat_demo.rs` file.
 
@@ -87,3 +90,5 @@ This library depends on:
 ## License
 
 LGPL-3.0-only
+
+However, the author requests in good faith that it not be used for military, surveillance, or malicious purposes.

@@ -28,6 +28,8 @@ const ALLOWED_BBCODE_TAGS: &[&str] = &[
 pub const BBCODE_TYPE_SPOILER: &str = "spoiler";
 /// BBCode type constant for code block formatting.
 pub const BBCODE_TYPE_CODE: &str = "code";
+/// BBCode type constant for preformatted text (what the Steam client's `/pre` produces).
+pub const BBCODE_TYPE_PRE: &str = "pre";
 /// BBCode type constant for URL/link formatting.
 pub const BBCODE_TYPE_URL: &str = "url";
 /// BBCode type constant for emoticon formatting.
@@ -312,7 +314,7 @@ pub mod helpers {
     /// # Arguments
     ///
     /// * `message` - The message content to wrap in BBCode
-    /// * `bbcode_type` - The type of BBCode formatting (e.g., `BBCODE_TYPE_SPOILER`, `BBCODE_TYPE_CODE`)
+    /// * `bbcode_type` - The type of BBCode formatting (e.g., `BBCODE_TYPE_SPOILER`, `BBCODE_TYPE_CODE`, `BBCODE_TYPE_PRE`)
     /// * `value` - Optional value for BBCode types that require it (e.g., URL for `BBCODE_TYPE_URL`)
     ///
     /// # Returns
@@ -329,7 +331,8 @@ mod bbcode {
 
     pub mod formatting {
         use super::super::{
-            BBCODE_TYPE_CODE, BBCODE_TYPE_EMOTICON, BBCODE_TYPE_SPOILER, BBCODE_TYPE_URL,
+            BBCODE_TYPE_CODE, BBCODE_TYPE_EMOTICON, BBCODE_TYPE_PRE, BBCODE_TYPE_SPOILER,
+            BBCODE_TYPE_URL,
         };
 
         /// Trait for formatting messages with BBCode
@@ -339,6 +342,7 @@ mod bbcode {
 
         struct SpoilerFormatter;
         struct CodeFormatter;
+        struct PreFormatter;
         struct UrlFormatter;
         struct EmoticonFormatter;
         struct DefaultFormatter;
@@ -352,6 +356,12 @@ mod bbcode {
         impl BBCodeFormatter for CodeFormatter {
             fn format(&self, message: &str, _value: &str) -> String {
                 format!("[code]{}[/code]", message)
+            }
+        }
+
+        impl BBCodeFormatter for PreFormatter {
+            fn format(&self, message: &str, _value: &str) -> String {
+                format!("[pre]{}[/pre]", message)
             }
         }
 
@@ -378,6 +388,7 @@ mod bbcode {
             match bbcode_type {
                 BBCODE_TYPE_SPOILER => Box::new(SpoilerFormatter),
                 BBCODE_TYPE_CODE => Box::new(CodeFormatter),
+                BBCODE_TYPE_PRE => Box::new(PreFormatter),
                 BBCODE_TYPE_URL => Box::new(UrlFormatter),
                 BBCODE_TYPE_EMOTICON => Box::new(EmoticonFormatter),
                 _ => Box::new(DefaultFormatter),
@@ -524,6 +535,23 @@ mod bbcode {
 mod tests {
     use super::*;
     use serde_json;
+
+    #[test]
+    fn test_format_with_bbcode_pre_and_code() {
+        assert_eq!(
+            helpers::format_with_bbcode("mm_dedicated_force_servers 1.2.3.4:27015", BBCODE_TYPE_PRE, ""),
+            "[pre]mm_dedicated_force_servers 1.2.3.4:27015[/pre]"
+        );
+        assert_eq!(
+            helpers::format_with_bbcode("x", BBCODE_TYPE_CODE, ""),
+            "[code]x[/code]"
+        );
+        let parsed = MessagePreprocessor::parse_bbcode("[pre]text[/pre]");
+        assert!(matches!(
+            parsed.first(),
+            Some(BBCodeContent::Node(node)) if node.tag == BBCODE_TYPE_PRE
+        ));
+    }
 
     #[test]
     fn test_bbcode_parsing() {

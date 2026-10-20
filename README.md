@@ -72,6 +72,22 @@ export CHAT_ID="your_chat_id"         # Optional
 - **Chat Groups**: List chat groups and their rooms via `get_my_chat_groups`, returning structured `ChatGroupInfo` with nested `ChatRoomInfo`
 - **Tracing Spans**: Built-in `tracing` instrumentation for logon, chat dispatch, preprocessing, deletion, and reactions
 
+### Sending formatted messages
+
+Steam does not render most raw BBCode sent by a client. The official client only ever sends mentions as BBCode; everything else is plain text that the server expands:
+
+| What | Send | Helper (`preprocessing_helpers`) |
+|---|---|---|
+| Mention a user | `[mention=<account id>]@name[/mention]` | `mention(steam_id, name)`, `mention_account_id(id, name)` |
+| Mention everyone / online | `[mention=all]@all[/mention]`, `[mention=here]@here[/mention]` | `mention_all()`, `mention_here()` |
+| Emoticon | `:steamhappy:` | `emoticon(name)` |
+| Code / pre / quote / spoiler / me | `/code text`, `/pre text`, `/quote text`, `/spoiler text`, `/me text` — the whole message | `slash_command(SlashCommand::Pre, text)` |
+| Giphy / random / flip / store / sticker / room effect | `/giphy q`, `/random 1-100`, `/flip`, `/store app`, `/sticker name`, `/roomeffect name` | `slash_command(...)` |
+| Links, images, clips | the plain URL | — |
+| Untrusted text (names, user input) | escape `[` and `\` | `escape_bbcode(text)` |
+
+`format_with_bbcode`, `create_mention`, `create_all_mention`, `create_here_mention` and `chat_helpers::create_message_with_*` are deprecated because their output isn't rendered as intended. The `BBCODE_TYPE_*` constants remain for parsing received messages, which contain the server-generated tags.
+
 For more advanced usage, see the `examples/chat_demo.rs` file.
 
 ## Error Handling

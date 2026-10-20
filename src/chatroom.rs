@@ -1752,6 +1752,10 @@ pub mod helpers {
     }
 
     /// Create a message with mentions
+    #[deprecated(
+        since = "0.10.0",
+        note = "plain `@[U:1:x]` is not a Steam mention; use `preprocessing_helpers::mention(steam_id, name)`"
+    )]
     pub fn create_message_with_mentions(message: &str, steam_ids: &[SteamID]) -> String {
         let mut result = message.to_string();
         for steam_id in steam_ids {
@@ -1761,11 +1765,13 @@ pub mod helpers {
     }
 
     /// Create a message with @all mention
+    #[deprecated(since = "0.10.0", note = "use `preprocessing_helpers::mention_all()`")]
     pub fn create_message_with_all_mention(message: &str) -> String {
         format!("{} {}", crate::preprocessing::MENTION_ALL, message)
     }
 
     /// Create a message with @here mention
+    #[deprecated(since = "0.10.0", note = "use `preprocessing_helpers::mention_here()`")]
     pub fn create_message_with_here_mention(message: &str) -> String {
         format!("{} {}", crate::preprocessing::MENTION_HERE, message)
     }
@@ -1829,6 +1835,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_message_with_mentions() {
         let steam_id = SteamID::try_from("[U:1:1531059355]").unwrap();
         let message = helpers::create_message_with_mentions("Hello", &[steam_id]);

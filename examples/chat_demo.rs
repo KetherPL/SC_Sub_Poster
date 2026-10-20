@@ -106,12 +106,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
             let formatted = chat_helpers::format_steam_id(steam_id);
             println!("  Formatted: {}", formatted);
 
-            // Test mention creation
-            let mention = preprocessing_helpers::create_mention(steam_id);
+            // Test mention creation (Steam mentions are [mention=<account id>]@name[/mention] BBCode)
+            let mention = preprocessing_helpers::mention(steam_id, "Player");
             println!("  Mention: {}", mention);
 
-            let message_with_mention =
-                chat_helpers::create_message_with_mentions("Hello", &[steam_id]);
+            let message_with_mention = format!("Hello {}", mention);
             println!("  Message with mention: {}", message_with_mention);
         }
         Err(e) => {

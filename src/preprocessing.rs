@@ -1,5 +1,26 @@
 // SPDX-License-Identifier: LGPL-3.0-only
 
+//! # How Steam chat formatting works when *sending*
+//!
+//! Derived from the official Steam chat client (`steamui`), not from Valve documentation:
+//!
+//! * The client escapes every `[` and `\` the user types (`[` -> `\[`, `\` -> `\\`) before
+//!   sending, so humans can never send raw BBCode. The only BBCode the client itself
+//!   generates is **mentions**: `[mention=<account id>]@<escaped name>[/mention]`,
+//!   `[mention=all]@all[/mention]` and `[mention=here]@here[/mention]`.
+//! * Everything else is produced **server-side** from slash commands sent as plain text at
+//!   the very start of the message (`/me`, `/code`, `/pre`, `/quote`, `/spoiler`, `/giphy`,
+//!   `/random`, `/flip`, `/store`, `/sticker`, `/roomeffect`). The server returns the
+//!   rewritten text (e.g. `[pre]...[/pre]`) as `modified_message`. Sending those tags raw does
+//!   not work (e.g. a raw `[pre]...[/pre]` is shown as plain text).
+//! * Emoticons are sent as plain `:name:` text (that is what the emoticon picker inserts).
+//! * Links, uploaded images/clips and embeds are sent as plain URLs.
+//!
+//! Use [`helpers::slash_command`], [`helpers::mention`], [`helpers::mention_all`],
+//! [`helpers::mention_here`], [`helpers::emoticon`] and [`helpers::escape_bbcode`] to build
+//! outgoing messages. The `BBCODE_TYPE_*` constants remain useful for *parsing* received
+//! messages, which do contain the server-generated tags.
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use steamid_ng::SteamID;
@@ -226,11 +247,14 @@ impl MessagePreprocessor {
         token.starts_with("[U:1:") && token.ends_with(']')
     }
 
-    /// Convert a message with mentions to a format suitable for sending
+    /// Prepare a message for sending.
+    ///
+    /// The message is sent as-is. It used to un-escape `\[` / `\]` into raw brackets, which
+    /// made it impossible to send a literal `[`: Steam displays `\[` as `[` (that is how the
+    /// official client sends user-typed brackets). Use [`helpers::escape_bbcode`] on any
+    /// untrusted text you embed in a message.
     pub fn prepare_message_for_sending(message: &str) -> String {
-        // Remove or escape special characters that might cause issues
-        // Basic escaping - in practice you'd want more sophisticated handling
-        message.replace("\\[", "[").replace("\\]", "]")
+        message.to_string()
     }
 
     /// Process a response from Steam with preprocessing
@@ -263,6 +287,111 @@ impl MessagePreprocessor {
 pub mod helpers {
     use super::*;
 
+    /// Server-side Steam chat slash commands (see the [module docs](super)).
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum SlashCommand {
+        /// `/me <text>` — displays text as an action.
+        Me,
+        /// `/code <text>` — formats text as a code block.
+        Code,
+        /// `/pre <text>` — fixed-width font, preserving whitespace.
+        Pre,
+        /// `/quote <text>` — formats text as a quote block.
+        Quote,
+        /// `/spoiler <text>` — hides the text until hovered.
+        Spoiler,
+        /// `/giphy <query>` — posts a random GIF matching the query.
+        Giphy,
+        /// `/random [max | min-max]` — picks a random number.
+        Random,
+        /// `/flip` — flips a coin.
+        Flip,
+        /// `/store <app>` — embeds a store item.
+        Store,
+        /// `/sticker <name>` — posts a sticker.
+        Sticker,
+        /// `/roomeffect <name>` — triggers a room effect.
+        RoomEffect,
+    }
+
+    impl SlashCommand {
+        /// The command as typed, including the leading `/`.
+        pub fn as_str(self) -> &'static str {
+            match self {
+                SlashCommand::Me => "/me",
+                SlashCommand::Code => "/code",
+                SlashCommand::Pre => "/pre",
+                SlashCommand::Quote => "/quote",
+                SlashCommand::Spoiler => "/spoiler",
+                SlashCommand::Giphy => "/giphy",
+                SlashCommand::Random => "/random",
+                SlashCommand::Flip => "/flip",
+                SlashCommand::Store => "/store",
+                SlashCommand::Sticker => "/sticker",
+                SlashCommand::RoomEffect => "/roomeffect",
+            }
+        }
+    }
+
+    /// Build a slash-command message, e.g. `slash_command(SlashCommand::Pre, "x")` -> `/pre x`.
+    ///
+    /// The result must be sent as the **whole** message: Steam only expands a slash command
+    /// at the start of a message, and one command formats the entire message.
+    pub fn slash_command(command: SlashCommand, text: &str) -> String {
+        if text.is_empty() {
+            command.as_str().to_string()
+        } else {
+            format!("{} {}", command.as_str(), text)
+        }
+    }
+
+    /// Escape text so Steam shows it literally instead of parsing it as BBCode
+    /// (`[` -> `\[`, `\` -> `\\`, the same escaping the official client applies).
+    ///
+    /// Use it for any untrusted text (player names, user input) embedded in a message.
+    pub fn escape_bbcode(text: &str) -> String {
+        let mut escaped = String::with_capacity(text.len());
+        for c in text.chars() {
+            if c == '[' || c == '\\' {
+                escaped.push('\\');
+            }
+            escaped.push(c);
+        }
+        escaped
+    }
+
+    /// Mention a user: `[mention=<account id>]@<name>[/mention]` (the name is escaped).
+    ///
+    /// Accepts a `SteamID`; the mention uses its 32-bit account ID.
+    pub fn mention(steam_id: SteamID, display_name: &str) -> String {
+        let account_id = (u64::from(steam_id) & 0xFFFF_FFFF) as u32;
+        mention_account_id(account_id, display_name)
+    }
+
+    /// Mention a user by 32-bit account ID: `[mention=<account id>]@<name>[/mention]`.
+    pub fn mention_account_id(account_id: u32, display_name: &str) -> String {
+        format!(
+            "[mention={}]@{}[/mention]",
+            account_id,
+            escape_bbcode(display_name)
+        )
+    }
+
+    /// Mention everyone in the group chat: `[mention=all]@all[/mention]`.
+    pub fn mention_all() -> String {
+        "[mention=all]@all[/mention]".to_string()
+    }
+
+    /// Mention online members of the group chat: `[mention=here]@here[/mention]`.
+    pub fn mention_here() -> String {
+        "[mention=here]@here[/mention]".to_string()
+    }
+
+    /// Emoticon as sent by the official client: `:name:` (surrounding colons are optional).
+    pub fn emoticon(name: &str) -> String {
+        format!(":{}:", name.trim_matches(':'))
+    }
+
     /// Create a mention string for a Steam ID in the format `@[U:1:xxxxx]`.
     ///
     /// # Arguments
@@ -271,7 +400,11 @@ pub mod helpers {
     ///
     /// # Returns
     ///
-    /// A string in the format `@[U:1:xxxxx]` that can be used to mention the user.
+    /// A string in the format `@[U:1:xxxxx]`.
+    #[deprecated(
+        since = "0.10.0",
+        note = "the official client never sends this form; use `mention(steam_id, name)` ([mention=...] BBCode)"
+    )]
     pub fn create_mention(steam_id: SteamID) -> String {
         format!("@{}", steam_id.steam3())
     }
@@ -280,7 +413,8 @@ pub mod helpers {
     ///
     /// # Returns
     ///
-    /// The string `"@all"` which mentions all members in a group chat.
+    /// The plain string `"@all"`.
+    #[deprecated(since = "0.10.0", note = "plain `@all` is converted client-side; use `mention_all()`")]
     pub fn create_all_mention() -> String {
         super::MENTION_ALL.to_string()
     }
@@ -289,7 +423,8 @@ pub mod helpers {
     ///
     /// # Returns
     ///
-    /// The string `"@here"` which mentions online/active members in a group chat.
+    /// The plain string `"@here"`.
+    #[deprecated(since = "0.10.0", note = "plain `@here` is converted client-side; use `mention_here()`")]
     pub fn create_here_mention() -> String {
         super::MENTION_HERE.to_string()
     }
@@ -320,6 +455,14 @@ pub mod helpers {
     /// # Returns
     ///
     /// The message wrapped in the appropriate BBCode tags.
+    ///
+    /// Raw formatting tags sent by a client are not rendered by Steam (see the
+    /// [module docs](super)): spoiler/code/pre must be sent as slash commands, emoticons as
+    /// `:name:` and links as plain URLs.
+    #[deprecated(
+        since = "0.10.0",
+        note = "Steam does not render raw formatting BBCode sent by clients; use `slash_command`, `emoticon` or a plain URL"
+    )]
     pub fn format_with_bbcode(message: &str, bbcode_type: &str, value: &str) -> String {
         super::bbcode::formatting::format_with_bbcode(message, bbcode_type, value)
     }
@@ -537,15 +680,46 @@ mod tests {
     use serde_json;
 
     #[test]
-    fn test_format_with_bbcode_pre_and_code() {
+    fn test_slash_command_formatting() {
+        use helpers::{slash_command, SlashCommand};
         assert_eq!(
-            helpers::format_with_bbcode("mm_dedicated_force_servers 1.2.3.4:27015", BBCODE_TYPE_PRE, ""),
-            "[pre]mm_dedicated_force_servers 1.2.3.4:27015[/pre]"
+            slash_command(SlashCommand::Pre, "mm_dedicated_force_servers 1.2.3.4:27015"),
+            "/pre mm_dedicated_force_servers 1.2.3.4:27015"
         );
+        assert_eq!(slash_command(SlashCommand::Code, "x"), "/code x");
+        assert_eq!(slash_command(SlashCommand::Flip, ""), "/flip");
+        assert_eq!(slash_command(SlashCommand::RoomEffect, "confetti"), "/roomeffect confetti");
+    }
+
+    #[test]
+    fn test_escape_bbcode_matches_official_client() {
+        assert_eq!(helpers::escape_bbcode(r"a[b]\c"), r"a\[b]\\c");
+        assert_eq!(helpers::escape_bbcode("plain"), "plain");
+    }
+
+    #[test]
+    fn test_mention_helpers() {
         assert_eq!(
-            helpers::format_with_bbcode("x", BBCODE_TYPE_CODE, ""),
-            "[code]x[/code]"
+            helpers::mention_account_id(1531059355, "Bob [/mention][mention=all]"),
+            r"[mention=1531059355]@Bob \[/mention]\[mention=all][/mention]"
         );
+        let steam_id = SteamID::try_from("[U:1:1531059355]").expect("steam id");
+        assert_eq!(
+            helpers::mention(steam_id, "Bob"),
+            "[mention=1531059355]@Bob[/mention]"
+        );
+        assert_eq!(helpers::mention_all(), "[mention=all]@all[/mention]");
+        assert_eq!(helpers::mention_here(), "[mention=here]@here[/mention]");
+    }
+
+    #[test]
+    fn test_emoticon_helper() {
+        assert_eq!(helpers::emoticon("steamhappy"), ":steamhappy:");
+        assert_eq!(helpers::emoticon(":steamhappy:"), ":steamhappy:");
+    }
+
+    #[test]
+    fn test_parse_server_generated_pre() {
         let parsed = MessagePreprocessor::parse_bbcode("[pre]text[/pre]");
         assert!(matches!(
             parsed.first(),
@@ -584,10 +758,10 @@ mod tests {
     }
 
     #[test]
-    fn test_prepare_message_for_sending_preserves_brackets() {
-        let message = r"Look at \[b\]escaped brackets\[/b\]";
+    fn test_prepare_message_for_sending_keeps_escapes() {
+        let message = r"Look at \[b]escaped brackets\[/b]";
         let prepared = MessagePreprocessor::prepare_message_for_sending(message);
-        assert_eq!(prepared, "Look at [b]escaped brackets[/b]");
+        assert_eq!(prepared, message);
     }
 
     #[test]

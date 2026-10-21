@@ -1750,31 +1750,6 @@ pub mod helpers {
     pub fn parse_steam_id(steam_id_str: &str) -> Result<SteamID, Box<dyn Error>> {
         Ok(SteamID::try_from(steam_id_str)?)
     }
-
-    /// Create a message with mentions
-    #[deprecated(
-        since = "0.10.0",
-        note = "plain `@[U:1:x]` is not a Steam mention; use `preprocessing_helpers::mention(steam_id, name)`"
-    )]
-    pub fn create_message_with_mentions(message: &str, steam_ids: &[SteamID]) -> String {
-        let mut result = message.to_string();
-        for steam_id in steam_ids {
-            result.push_str(&format!(" @{}", steam_id.steam3()));
-        }
-        result
-    }
-
-    /// Create a message with @all mention
-    #[deprecated(since = "0.10.0", note = "use `preprocessing_helpers::mention_all()`")]
-    pub fn create_message_with_all_mention(message: &str) -> String {
-        format!("{} {}", crate::preprocessing::MENTION_ALL, message)
-    }
-
-    /// Create a message with @here mention
-    #[deprecated(since = "0.10.0", note = "use `preprocessing_helpers::mention_here()`")]
-    pub fn create_message_with_here_mention(message: &str) -> String {
-        format!("{} {}", crate::preprocessing::MENTION_HERE, message)
-    }
 }
 
 #[cfg(test)]
@@ -1832,13 +1807,5 @@ mod tests {
 
         let formatted = helpers::format_steam_id(steam_id.unwrap());
         assert_eq!(formatted, steam_id_str);
-    }
-
-    #[test]
-    #[allow(deprecated)]
-    fn test_message_with_mentions() {
-        let steam_id = SteamID::try_from("[U:1:1531059355]").unwrap();
-        let message = helpers::create_message_with_mentions("Hello", &[steam_id]);
-        assert!(message.contains("@"));
     }
 }

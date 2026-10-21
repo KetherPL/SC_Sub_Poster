@@ -86,7 +86,7 @@ Steam does not render most raw BBCode sent by a client. The official client only
 | Links, images, clips | the plain URL | — |
 | Untrusted text (names, user input) | escape `[` and `\` | `escape_bbcode(text)` |
 
-`format_with_bbcode`, `create_mention`, `create_all_mention`, `create_here_mention` and `chat_helpers::create_message_with_*` are deprecated because their output isn't rendered as intended. The `BBCODE_TYPE_*` constants remain for parsing received messages, which contain the server-generated tags.
+The `BBCODE_TYPE_*` constants are for inspecting received messages, which contain the server-generated tags. (`format_with_bbcode`, `create_mention`, `create_all_mention`, `create_here_mention` and `chat_helpers::create_message_with_*` were removed in 0.10.0 because Steam doesn't render their output as intended.)
 
 For more advanced usage, see the `examples/chat_demo.rs` file.
 

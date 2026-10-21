@@ -44,7 +44,7 @@ const ALLOWED_BBCODE_TAGS: &[&str] = &[
     "roomeffect",
 ];
 
-// BBCode formatting type constants
+// BBCode tag names, for inspecting parsed received messages (see the module docs for sending)
 /// BBCode type constant for spoiler text formatting.
 pub const BBCODE_TYPE_SPOILER: &str = "spoiler";
 /// BBCode type constant for code block formatting.
@@ -282,8 +282,8 @@ impl MessagePreprocessor {
 
 /// Helper functions for message processing and formatting.
 ///
-/// This module provides convenience functions for creating mentions, formatting
-/// messages with BBCode, and checking for mentions in text.
+/// This module provides convenience functions for building outgoing messages (mentions,
+/// emoticons, slash commands, BBCode escaping) and checking for mentions in text.
 pub mod helpers {
     use super::*;
 
@@ -392,43 +392,6 @@ pub mod helpers {
         format!(":{}:", name.trim_matches(':'))
     }
 
-    /// Create a mention string for a Steam ID in the format `@[U:1:xxxxx]`.
-    ///
-    /// # Arguments
-    ///
-    /// * `steam_id` - The Steam ID to create a mention for
-    ///
-    /// # Returns
-    ///
-    /// A string in the format `@[U:1:xxxxx]`.
-    #[deprecated(
-        since = "0.10.0",
-        note = "the official client never sends this form; use `mention(steam_id, name)` ([mention=...] BBCode)"
-    )]
-    pub fn create_mention(steam_id: SteamID) -> String {
-        format!("@{}", steam_id.steam3())
-    }
-
-    /// Create an `@all` mention string.
-    ///
-    /// # Returns
-    ///
-    /// The plain string `"@all"`.
-    #[deprecated(since = "0.10.0", note = "plain `@all` is converted client-side; use `mention_all()`")]
-    pub fn create_all_mention() -> String {
-        super::MENTION_ALL.to_string()
-    }
-
-    /// Create an `@here` mention string.
-    ///
-    /// # Returns
-    ///
-    /// The plain string `"@here"`.
-    #[deprecated(since = "0.10.0", note = "plain `@here` is converted client-side; use `mention_here()`")]
-    pub fn create_here_mention() -> String {
-        super::MENTION_HERE.to_string()
-    }
-
     /// Check if a message contains any mention tokens.
     ///
     /// # Arguments
@@ -443,107 +406,11 @@ pub mod helpers {
             || message.contains(super::MENTION_HERE)
             || message.contains("@")
     }
-
-    /// Format a message with BBCode tags.
-    ///
-    /// # Arguments
-    ///
-    /// * `message` - The message content to wrap in BBCode
-    /// * `bbcode_type` - The type of BBCode formatting (e.g., `BBCODE_TYPE_SPOILER`, `BBCODE_TYPE_CODE`, `BBCODE_TYPE_PRE`)
-    /// * `value` - Optional value for BBCode types that require it (e.g., URL for `BBCODE_TYPE_URL`)
-    ///
-    /// # Returns
-    ///
-    /// The message wrapped in the appropriate BBCode tags.
-    ///
-    /// Raw formatting tags sent by a client are not rendered by Steam (see the
-    /// [module docs](super)): spoiler/code/pre must be sent as slash commands, emoticons as
-    /// `:name:` and links as plain URLs.
-    #[deprecated(
-        since = "0.10.0",
-        note = "Steam does not render raw formatting BBCode sent by clients; use `slash_command`, `emoticon` or a plain URL"
-    )]
-    pub fn format_with_bbcode(message: &str, bbcode_type: &str, value: &str) -> String {
-        super::bbcode::formatting::format_with_bbcode(message, bbcode_type, value)
-    }
 }
 
 mod bbcode {
     use super::{BBCodeContent, BBCodeNode};
     use std::collections::HashMap;
-
-    pub mod formatting {
-        use super::super::{
-            BBCODE_TYPE_CODE, BBCODE_TYPE_EMOTICON, BBCODE_TYPE_PRE, BBCODE_TYPE_SPOILER,
-            BBCODE_TYPE_URL,
-        };
-
-        /// Trait for formatting messages with BBCode
-        trait BBCodeFormatter {
-            fn format(&self, message: &str, value: &str) -> String;
-        }
-
-        struct SpoilerFormatter;
-        struct CodeFormatter;
-        struct PreFormatter;
-        struct UrlFormatter;
-        struct EmoticonFormatter;
-        struct DefaultFormatter;
-
-        impl BBCodeFormatter for SpoilerFormatter {
-            fn format(&self, message: &str, _value: &str) -> String {
-                format!("[spoiler]{}[/spoiler]", message)
-            }
-        }
-
-        impl BBCodeFormatter for CodeFormatter {
-            fn format(&self, message: &str, _value: &str) -> String {
-                format!("[code]{}[/code]", message)
-            }
-        }
-
-        impl BBCodeFormatter for PreFormatter {
-            fn format(&self, message: &str, _value: &str) -> String {
-                format!("[pre]{}[/pre]", message)
-            }
-        }
-
-        impl BBCodeFormatter for UrlFormatter {
-            fn format(&self, message: &str, value: &str) -> String {
-                format!("[url={}]{}[/url]", value, message)
-            }
-        }
-
-        impl BBCodeFormatter for EmoticonFormatter {
-            fn format(&self, _message: &str, value: &str) -> String {
-                format!("[emoticon:{}]", value)
-            }
-        }
-
-        impl BBCodeFormatter for DefaultFormatter {
-            fn format(&self, message: &str, _value: &str) -> String {
-                message.to_string()
-            }
-        }
-
-        /// Get the appropriate formatter for a BBCode type
-        fn get_formatter(bbcode_type: &str) -> Box<dyn BBCodeFormatter> {
-            match bbcode_type {
-                BBCODE_TYPE_SPOILER => Box::new(SpoilerFormatter),
-                BBCODE_TYPE_CODE => Box::new(CodeFormatter),
-                BBCODE_TYPE_PRE => Box::new(PreFormatter),
-                BBCODE_TYPE_URL => Box::new(UrlFormatter),
-                BBCODE_TYPE_EMOTICON => Box::new(EmoticonFormatter),
-                _ => Box::new(DefaultFormatter),
-            }
-        }
-
-        /// Format a message with BBCode using the strategy pattern
-        pub fn format_with_bbcode(message: &str, bbcode_type: &str, value: &str) -> String {
-            let formatter = get_formatter(bbcode_type);
-            formatter.format(message, value)
-        }
-    }
 
     pub struct Parser<'a> {
         allowed_tags: &'a [&'a str],

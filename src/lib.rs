@@ -25,8 +25,9 @@ pub type LogOn = KetherSteamClient;
 pub use chatroom::helpers as chat_helpers;
 pub use chatroom::{
     ChatGroupInfo, ChatMessageHistoryEntry, ChatRoomClient, ChatRoomGroups, ChatRoomInfo,
-    ChatRoomMessaging, ChatRoomNotifications, EnhancedGroupChatMessage, FriendMessage,
-    GroupChatMessage, MessageReactionInfo, ReactionEvent, ReactionType, SendGroupMessageParams,
+    CallbackResult, ChatRoomMessaging, ChatRoomNotifications, EnhancedGroupChatMessage,
+    FriendMessage, GroupChatMessage, MessageReactionInfo, ReactionEvent, ReactionType,
+    SendGroupMessageParams, steam_id_from_account_id,
 };
 
 // Re-export preprocessing types
@@ -38,6 +39,38 @@ pub use preprocessing::{
 
 /// Steam chat room operations and messaging.
 pub mod chatroom;
+/// Extra group chat notifications (feature `chat-events`).
+#[cfg(feature = "chat-events")]
+pub mod chat_events;
+/// Group chat moderation (feature `chat-moderation`).
+#[cfg(feature = "chat-moderation")]
+pub mod chat_moderation;
+/// Group chat roles and permissions (feature `chat-roles`).
+#[cfg(feature = "chat-roles")]
+pub mod chat_roles;
+/// Group chat invites and invite links (feature `chat-invites`).
+#[cfg(feature = "chat-invites")]
+pub mod chat_invites;
+/// Group chat administration (feature `chat-admin`).
+#[cfg(feature = "chat-admin")]
+pub mod chat_admin;
+/// Voice chat signalling (feature `chat-voice`).
+#[cfg(feature = "chat-voice")]
+pub mod chat_voice;
+/// Private (friend) messaging (feature `friend-messages`).
+#[cfg(feature = "friend-messages")]
+pub mod friends;
+mod chat_core;
+mod rpc;
+
+pub use chat_core::ChatMemberMatch;
+
+/// Raw protobuf types used in this crate's public API, for requests and responses that are
+/// returned as-is.
+pub mod proto {
+    pub use steam_vent_proto::steammessages_chat_steamclient as chat;
+    pub use steam_vent_proto::steammessages_friendmessages_steamclient as friend_messages;
+}
 /// Error classification and retry guidance utilities.
 pub mod errors;
 /// Steam authentication and connection management.

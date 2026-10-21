@@ -5,7 +5,7 @@ use futures_util::StreamExt as FuturesStreamExt;
 use std::error::Error;
 use std::pin::Pin;
 use std::time::Duration;
-use steam_vent::ConnectionTrait;
+use steam_vent::{ConnectionTrait, ServiceMethodRequest};
 use steam_vent_proto::steammessages_chat_steamclient::{
     CChatRoom_DeleteChatMessages_Request, CChatRoom_DeleteChatMessages_Response,
     CChatRoom_GetChatRoomGroupState_Request, CChatRoom_GetChatRoomGroupState_Response,
@@ -30,7 +30,40 @@ use tokio::time::sleep;
 use tokio_stream::{Stream, StreamExt};
 use tracing::{debug, instrument};
 
-type CallbackResult = Result<(), Box<dyn Error + Send + Sync>>;
+/// Result returned by notification callbacks: `Ok(())` keeps listening, `Err` stops the
+/// listener and is returned to the caller.
+pub type CallbackResult = Result<(), Box<dyn Error + Send + Sync>>;
+
+/// SteamID64 of the first individual account in the public universe; adding a 32-bit
+/// account ID yields that account's SteamID64.
+const INDIVIDUAL_STEAMID64_BASE: u64 = 76_561_197_960_265_728;
+
+/// Converts a 32-bit account ID (as used in chat member lists, reactions and history) to a
+/// [`SteamID`] of an individual account in the public universe.
+pub fn steam_id_from_account_id(account_id: u32) -> SteamID {
+    SteamID::from(INDIVIDUAL_STEAMID64_BASE + u64::from(account_id))
+}
+
+/// Listens for notifications of type `T` on `connection`, calling `callback` for each one.
+///
+/// Shared by every typed listener in this crate. Stops when the stream ends, the stream
+/// errors, or the callback returns an error.
+pub(crate) async fn listen_notifications<T, F>(
+    connection: &steam_vent::Connection,
+    callback: F,
+) -> Result<(), Box<dyn Error>>
+where
+    T: ServiceMethodRequest + Send + 'static,
+    F: FnMut(T) -> CallbackResult + Send + 'static,
+{
+    let stream = connection
+        .on_notification::<T>()
+        .throttle(Duration::from_millis(25));
+    NotificationStream::new(stream, Duration::from_millis(250))
+        .for_each(callback)
+        .await
+        .map_err(|err| -> Box<dyn Error> { Box::new(err) })
+}
 
 /// Chat room information
 #[derive(Debug, Clone)]
@@ -242,7 +275,8 @@ impl ChatMessageHistoryEntry {
         }
 
         Self {
-            sender: SteamID::from(message.sender() as u64),
+            // `sender` is a 32-bit account ID, not a SteamID64.
+            sender: steam_id_from_account_id(message.sender()),
             server_timestamp: message.server_timestamp(),
             ordinal: message.ordinal(),
             message: message.message().to_string(),
@@ -275,17 +309,17 @@ pub struct ChatRoomClient {
 
 /// Group-related operations for chat rooms.
 pub struct ChatRoomGroups<'a> {
-    connection: &'a steam_vent::Connection,
+    pub(crate) connection: &'a steam_vent::Connection,
 }
 
 /// Message sending helpers for chats and friends.
 pub struct ChatRoomMessaging<'a> {
-    connection: &'a steam_vent::Connection,
+    pub(crate) connection: &'a steam_vent::Connection,
 }
 
 /// Notification listeners for chat and friend messages.
 pub struct ChatRoomNotifications<'a> {
-    connection: &'a steam_vent::Connection,
+    pub(crate) connection: &'a steam_vent::Connection,
 }
 
 /// Parameters for sending a group message
@@ -1364,6 +1398,12 @@ impl<'a> ChatRoomMessaging<'a> {
     /// # Example
     ///
     /// ```no_run
+    /// # async fn example(
+    /// #     client: &SC_Sub_Poster::ChatRoomClient,
+    /// #     params: SC_Sub_Poster::SendGroupMessageParams,
+    /// #     chat_group_id: u64,
+    /// #     chat_id: u64,
+    /// # ) -> Result<(), Box<dyn std::error::Error>> {
     /// // After sending a message and receiving a PreprocessedMessage:
     /// let preprocessed = client.send_group_message(params).await?;
     /// if let (Some(ts), Some(ord)) = (preprocessed.server_timestamp, preprocessed.ordinal) {
@@ -1373,6 +1413,8 @@ impl<'a> ChatRoomMessaging<'a> {
     ///         vec![(ts, ord)]
     ///     ).await?;
     /// }
+    /// # Ok(())
+    /// # }
     /// ```
     #[instrument(
         name = "kether.chat.delete_group_messages",
@@ -1482,6 +1524,12 @@ impl<'a> ChatRoomMessaging<'a> {
     /// # Example
     ///
     /// ```no_run
+    /// # async fn example(
+    /// #     client: &SC_Sub_Poster::ChatRoomClient,
+    /// #     params: SC_Sub_Poster::SendGroupMessageParams,
+    /// #     chat_group_id: u64,
+    /// #     chat_id: u64,
+    /// # ) -> Result<(), Box<dyn std::error::Error>> {
     /// // Send a message and store it
     /// let sent_message = client.send_group_message(params).await?;
     ///
@@ -1491,6 +1539,8 @@ impl<'a> ChatRoomMessaging<'a> {
     ///     chat_id,
     ///     vec![sent_message]
     /// ).await?;
+    /// # Ok(())
+    /// # }
     /// ```
     #[instrument(
         name = "kether.chat.delete_group_messages_from_preprocessed",
@@ -1703,6 +1753,23 @@ impl<'a> ChatRoomNotifications<'a> {
             Ok(())
         })
         .await
+    }
+
+    /// Listen for any Steam service notification type, as its raw protobuf message.
+    ///
+    /// Escape hatch for notifications that have no typed listener in this crate, e.g.
+    /// `listen_for_notification_with::<CChatRoom_MemberStateChange_Notification, _>(...)`.
+    /// The callback can return an error to stop the listener, or `Ok(())` to continue.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the notification stream fails or the callback returns an error.
+    pub async fn listen_for_notification_with<T, F>(&self, callback: F) -> Result<(), Box<dyn Error>>
+    where
+        T: ServiceMethodRequest + Send + 'static,
+        F: FnMut(T) -> CallbackResult + Send + 'static,
+    {
+        listen_notifications(self.connection, callback).await
     }
 
     fn group_stream(&self) -> NotificationStream<'_, CChatRoom_IncomingChatMessage_Notification> {

@@ -1,9 +1,9 @@
 [package]
 name = "SC_Sub_Poster"
-version = "0.9.99"
+version = "0.10.0"
 edition = "2024"
 authors = ["Dominik Adrian Grzywak <starterx4@gmail.com>"]
-description = "Minimal port of NodeJS steam-user library to Rust just for sending messages to group chats"
+description = "Steam Chat client library: group chats and private messages, built on steam-vent"
 repository = "https://github.com/KetherPL/SC_Sub_Poster"
 homepage = "https://kether.pl"
 license = "LGPL-3.0-only"
@@ -21,6 +21,34 @@ steam-vent-proto = "0.5.2"
 thiserror = "1.0.69"
 futures-util = "0.3"
 tracing = "0.1"
+
+[features]
+# Private (friend) messaging beyond plain send/receive: typing, read receipts, history,
+# active conversations, reactions and richer listeners.
+default = ["friend-messages"]
+friend-messages = []
+# Extra group chat notifications: deleted messages, member/room/header changes, disconnects.
+chat-events = []
+# Group moderation: kick, ban/unban, ban list, mute, invite list, revoke invites.
+chat-moderation = []
+# Group roles: create/rename/reorder/delete roles, role permissions, assign/unassign.
+chat-roles = []
+# Group invites: invite friends, invite links, resolving invite codes.
+chat-invites = []
+# Group administration: create/rename groups, tagline, avatar, rooms, Steam-group chat privacy.
+chat-admin = []
+# Voice chat signalling (join/leave); no audio transport.
+chat-voice = []
+# Everything above.
+full = [
+    "friend-messages",
+    "chat-events",
+    "chat-moderation",
+    "chat-roles",
+    "chat-invites",
+    "chat-admin",
+    "chat-voice",
+]
 
 [dev-dependencies]
 tokio = { version = "1.x", features = ["full", "macros", "rt", "rt-multi-thread"] }

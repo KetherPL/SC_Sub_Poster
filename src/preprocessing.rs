@@ -16,8 +16,8 @@
 //! * Emoticons are sent as plain `:name:` text (that is what the emoticon picker inserts).
 //! * Links, uploaded images/clips and embeds are sent as plain URLs.
 //!
-//! Use [`helpers::slash_command`], [`helpers::mention`], [`helpers::mention_all`],
-//! [`helpers::mention_here`], [`helpers::emoticon`] and [`helpers::escape_bbcode`] to build
+//! Use [`helpers::slash_command`](crate::preprocessing::helpers::slash_command), [`helpers::mention`](crate::preprocessing::helpers::mention), [`helpers::mention_all`](crate::preprocessing::helpers::mention_all),
+//! [`helpers::mention_here`](crate::preprocessing::helpers::mention_here), [`helpers::emoticon`](crate::preprocessing::helpers::emoticon) and [`helpers::escape_bbcode`](crate::preprocessing::helpers::escape_bbcode) to build
 //! outgoing messages. The `BBCODE_TYPE_*` constants remain useful for *parsing* received
 //! messages, which do contain the server-generated tags.
 

@@ -1,8 +1,8 @@
 # SC Sub Poster (Kether.pl Steam Client Library)
 
-A Rust library that provides a wrapper around the `steam-vent` crate for logging in to Steam and operating on the Steam Group Chats.
+A Rust library that wraps the `steam-vent` crate for logging in to Steam and using Steam Chat: group chats (messages, reactions, history, events, moderation, roles, invites, administration, voice signalling) and private messages between friends.
 
-Actually all we need just to post `!sub` requests on our Steam Group Chat ;)
+It started as a way to post `!sub` requests on our Steam Group Chat ;)
 
 ## Usage
 
@@ -10,7 +10,7 @@ Here's a basic example of how to use this library to login to Steam and send mes
 
 ```rust
 use std::{env, error::Error};
-use SC_Sub_Poster::{LogOn, ChatRoomClient};
+use SC_Sub_Poster::{ChatRoomClient, LogOn, SendGroupMessageParams};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -41,7 +41,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     
     let response = chat_client
         .messaging()
-        .send_group_message(group_id, chat_id, message, true)
+        .send_group_message(
+            SendGroupMessageParams::new(group_id, chat_id, message).with_echo_to_sender(true),
+        )
         .await?;
     println!("✓ Message sent successfully!");
     println!("Modified message: {}", response.modified_message);
@@ -71,6 +73,26 @@ export CHAT_ID="your_chat_id"         # Optional
 - **Message Reactions**: Add and remove emoticon or sticker reactions, list reactors, fetch reaction summaries from message history, and listen for real-time reaction events
 - **Chat Groups**: List chat groups and their rooms via `get_my_chat_groups`, returning structured `ChatGroupInfo` with nested `ChatRoomInfo`
 - **Tracing Spans**: Built-in `tracing` instrumentation for logon, chat dispatch, preprocessing, deletion, and reactions
+- **Raw access**: every protobuf type in the public API is re-exported under `SC_Sub_Poster::proto`, and `notifications().listen_for_notification_with::<T, _>(...)` listens for any Steam notification type
+
+### Cargo features
+
+The original API (`groups()`, `messaging()`, `notifications()`) is always available. Everything else is opt-in:
+
+| Feature | Handle | What it adds |
+|---|---|---|
+| `friend-messages` *(default)* | `client.friends()` | Private messages: `send_message`, `send_typing`, `ack_message` (mark read), `get_message_history`, `get_active_sessions`, `add_reaction` / `remove_reaction`, `get_friends_ui_status`; listeners for messages, typing / other events, and reactions |
+| `chat-events` | `client.events()` | Group notifications: member joins/leaves/kicks/bans/mutes/rank & role changes, deleted messages, header changes, room list changes, your own membership changes, disconnects |
+| `chat-moderation` | `client.moderation()` | `kick_user`, `ban_user` / `unban_user`, `get_ban_list`, `mute_user`, `get_invite_list`, `revoke_invite` |
+| `chat-roles` | `client.roles()` | `get_roles`, `create_role`, `rename_role`, `reorder_role`, `delete_role`, `get_role_actions` / `replace_role_actions` (permissions), `add_role_to_user` / `remove_role_from_user`, `get_roles_for_user` |
+| `chat-invites` | `client.invites()` | `invite_friend`, `create_invite_link`, `get_invite_links`, `delete_invite_link`, `get_invite_link_info`, `get_invite_info` (links are `https://s.team/chat/<code>`) |
+| `chat-admin` | `client.admin()` | `create_group`, `save_group`, `rename_group`, `set_tagline`, `set_avatar`, `set_watching_broadcast`, `create_room` / `rename_room` / `reorder_room` / `delete_room`, `set_clan_chat_private` |
+| `chat-voice` | `client.voice()` | `join` / `leave` a room's voice channel and listen for rejoin requests (signalling only, no audio) |
+| `full` | | All of the above |
+
+Always available as well: `groups().get_group_summary`, `get_clan_chat_group` (find a Steam group's chat by its SteamID), `set_session_active_groups`, `search_members`, `set_notification_preferences`, and `messaging().ack_chat_message` (mark a room as read).
+
+Not covered: read-marker echoes from your other sessions (`steam-vent` 0.5 can't subscribe to them separately), mini-games, the virtualized member list for huge groups, and voice audio.
 
 ### Sending formatted messages
 
